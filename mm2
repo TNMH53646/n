@@ -1,0 +1,1095 @@
+-- ==================== FIXED & ROBUST SCRIPT ====================
+
+local players = game:GetService("Players")
+local localPlayer = players.LocalPlayer
+local rs = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local ProximityService = game:GetService("ProximityPromptService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local camera = workspace.CurrentCamera
+
+-- Anti AFK
+localPlayer.Idled:Connect(function()
+    VirtualUser:Button2Down(Vector2.new(0, 0), camera.CFrame)
+    task.wait(1)
+    VirtualUser:Button2Up(Vector2.new(0, 0), camera.CFrame)
+end)
+
+-- Instant Proximity Prompt
+ProximityService.PromptShown:Connect(function(prompt)
+    prompt.HoldDuration = 0
+end)
+
+-- Variables
+local selectedPlayerName = ""
+local tweenBehindDistance = 5
+local isTweeningBehind = false
+local safeModeEnabled = false
+local safeModeLocation = Vector3.new(0, 50, 0)
+
+-- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
+
+-- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
+
+local tweenDirection = "Behind"
+local tweenDistance = 5
+local isTweeningRelative = false
+local isAutoLooking = false
+local createPlatform = true
+local tempPlatform = nil
+local selectedPlayerName = ""
+
+local players = game:GetService("Players")
+local localPlayer = players.LocalPlayer
+local TweenService = game:GetService("TweenService")
+
+local function getPlayerList()
+    local list = {}
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer then
+            table.insert(list, p.Name)
+        end
+    end
+    return list
+end
+
+-- คำนวณหาตำแหน่งพุ่งไป (Position เท่านั้น)
+local function getTargetOffsetPosition(targetHRP, direction, distance)
+    local targetCF = targetHRP.CFrame
+    if direction == "Front" then
+        return (targetCF * CFrame.new(0, 0, -distance)).Position
+    elseif direction == "Behind" then
+        return (targetCF * CFrame.new(0, 0, distance)).Position
+    elseif direction == "Above" then
+        return (targetCF * CFrame.new(0, distance, 0)).Position
+    elseif direction == "Below" then
+        return (targetCF * CFrame.new(0, -distance, 0)).Position
+    elseif direction == "Left" then
+        return (targetCF * CFrame.new(-distance, 0, 0)).Position
+    elseif direction == "Right" then
+        return (targetCF * CFrame.new(distance, 0, 0)).Position
+    end
+    return (targetCF * CFrame.new(0, 0, distance)).Position
+end
+
+local function updatePlatform(targetPosition)
+    if not createPlatform then
+        if tempPlatform then
+            tempPlatform:Destroy()
+            tempPlatform = nil
+        end
+        return
+    end
+
+    if not tempPlatform or not tempPlatform.Parent then
+        tempPlatform = Instance.new("Part")
+        tempPlatform.Name = "TweenPlatform"
+        tempPlatform.Size = Vector3.new(6, 1, 6)
+        tempPlatform.Anchored = true
+        tempPlatform.CanCollide = true
+        tempPlatform.Material = Enum.Material.SmoothPlastic
+        tempPlatform.Color = Color3.fromRGB(0, 170, 255)
+        tempPlatform.Transparency = 0.4
+        tempPlatform.Parent = workspace
+    end
+
+    tempPlatform.CFrame = CFrame.new(targetPosition - Vector3.new(0, 3.5, 0))
+end
+
+local function applyBodyVelocity(hrp, targetPos)
+    local bv = hrp:FindFirstChild("TweenBodyVelocity")
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "TweenBodyVelocity"
+        bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+        bv.Parent = hrp
+    end
+    local direction = (targetPos - hrp.Position)
+    bv.Velocity = direction * 5
+end
+
+local function removeBodyVelocity(hrp)
+    if hrp then
+        local bv = hrp:FindFirstChild("TweenBodyVelocity")
+        if bv then
+            bv:Destroy()
+        end
+    end
+end
+
+local defaultSpeed = 16
+local customSpeed = nil
+local speedConnection
+
+task.spawn(function()
+    local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then defaultSpeed = hum.WalkSpeed end
+end)
+
+local function setSpeedLock(speed)
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    if hum then
+        hum.WalkSpeed = speed
+        if speedConnection then speedConnection:Disconnect() end
+        speedConnection = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if hum.WalkSpeed ~= speed then
+                hum.WalkSpeed = speed
+            end
+        end)
+    end
+end
+
+local function getPlayerList()
+    local list = {}
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer then
+            table.insert(list, p.Name)
+        end
+    end
+    if #list == 0 then table.insert(list, "None") end
+    return list
+end
+
+-- ==================== FULLY FUNCTIONAL ROLE ESP SYSTEM ====================
+local espNameEnabled = false
+local espBoxEnabled = false
+local espTracerEnabled = false
+local espHighlightEnabled = false
+
+-- กำหนดสีเริ่มต้นของแต่ละ Role
+local murdererColor = Color3.fromRGB(255, 0, 0)   -- สีฆาตกร (แดง)
+local sheriffColor = Color3.fromRGB(0, 120, 255)   -- สีนายอำเภอ (น้ำเงิน)
+local innocentColor = Color3.fromRGB(0, 255, 0)   -- สีคนธรรมดา (เขียว)
+
+local espObjects = {}
+local hasDrawingAPI = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+
+-- ฟังก์ชันเช็คอาวุธระบุบทบาท (Role Detection)
+local function getPlayerRole(p)
+    if not p or not p.Character then return "Innocent" end
+    local backpack = p:FindFirstChild("Backpack")
+    local char = p.Character
+    
+    local function checkTools(container)
+        if not container then return nil end
+        for _, item in ipairs(container:GetChildren()) do
+            if item:IsA("Tool") then
+                local nameLower = item.Name:lower()
+                if nameLower:find("gun") or nameLower:find("revolver") then
+                    return "Sheriff"
+                elseif nameLower:find("knife") or nameLower:find("dagger") then
+                    return "Murderer"
+                end
+            end
+        end
+        return nil
+    end
+
+    local role = checkTools(backpack) or checkTools(char)
+    return role or "Innocent"
+end
+
+local function removeESP(p)
+    if espObjects[p] then
+        if espObjects[p].connection then espObjects[p].connection:Disconnect() end
+        if espObjects[p].highlight then espObjects[p].highlight:Destroy() end
+        if espObjects[p].nameText then pcall(function() espObjects[p].nameText:Remove() end) end
+        if espObjects[p].boxOutline then pcall(function() espObjects[p].boxOutline:Remove() end) end
+        if espObjects[p].boxInline then pcall(function() espObjects[p].boxInline:Remove() end) end
+        if espObjects[p].tracer then pcall(function() espObjects[p].tracer:Remove() end) end
+        espObjects[p] = nil
+    end
+end
+
+local function applyESPToCharacter(p, charModel)
+    removeESP(p)
+    if not charModel then return end
+
+    local hrpTarget = charModel:WaitForChild("HumanoidRootPart", 5)
+    local humanoidTarget = charModel:WaitForChild("Humanoid", 5)
+    if not hrpTarget or not humanoidTarget then return end
+
+    -- Highlight ESP
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.FillColor = innocentColor
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Enabled = espHighlightEnabled
+    highlight.Parent = charModel
+
+    -- Drawing Elements (Box, Name & Tracer)
+    local boxOutline, boxInline, tracer, nameText
+    if hasDrawingAPI then
+        pcall(function()
+            boxOutline = Drawing.new("Square")
+            boxOutline.Visible = false
+            boxOutline.Color = Color3.new(0, 0, 0)
+            boxOutline.Thickness = 3
+
+            boxInline = Drawing.new("Square")
+            boxInline.Visible = false
+            boxInline.Color = innocentColor
+            boxInline.Thickness = 1
+
+            tracer = Drawing.new("Line")
+            tracer.Visible = false
+            tracer.Color = innocentColor
+            tracer.Thickness = 1.5
+
+            nameText = Drawing.new("Text")
+            nameText.Visible = false
+            nameText.Center = true
+            nameText.Outline = true
+            nameText.Size = 18 -- ขนาดตัวหนังสือ
+            nameText.Color = innocentColor
+        end)
+    end
+
+    local conn = rs.RenderStepped:Connect(function()
+        if not charModel.Parent or humanoidTarget.Health <= 0 then
+            removeESP(p)
+            return
+        end
+
+        -- คำนวณสีตาม Role ของผู้เล่น
+        local role = getPlayerRole(p)
+        local currentColor = innocentColor
+        if role == "Murderer" then
+            currentColor = murdererColor
+        elseif role == "Sheriff" then
+            currentColor = sheriffColor
+        end
+
+        -- ปรับปรุงค่าสี
+        highlight.FillColor = currentColor
+        highlight.Enabled = espHighlightEnabled
+        if boxInline then boxInline.Color = currentColor end
+        if tracer then tracer.Color = currentColor end
+        if nameText then nameText.Color = currentColor end
+
+        if hasDrawingAPI then
+            local pos, onScreen = camera:WorldToViewportPoint(hrpTarget.Position)
+            if onScreen then
+                local extents = charModel:GetExtentsSize()
+                local cframe = charModel:GetPivot()
+                local top, tOn = camera:WorldToViewportPoint(cframe.Position + Vector3.new(0, extents.Y / 2 + 0.5, 0))
+                local bottom, bOn = camera:WorldToViewportPoint(cframe.Position - Vector3.new(0, extents.Y / 2 + 0.5, 0))
+
+                if tOn and bOn then
+                    local height = math.abs(top.Y - bottom.Y)
+                    local width = height * 0.65
+                    local topLeft = Vector2.new(pos.X - width / 2, top.Y)
+
+                    -- Box ESP
+                    if espBoxEnabled and boxOutline and boxInline then
+                        boxOutline.Size = Vector2.new(width, height)
+                        boxOutline.Position = topLeft
+                        boxOutline.Visible = true
+
+                        boxInline.Size = Vector2.new(width, height)
+                        boxInline.Position = topLeft
+                        boxInline.Visible = true
+                    elseif boxOutline and boxInline then
+                        boxOutline.Visible = false
+                        boxInline.Visible = false
+                    end
+
+                    -- Name & Distance ESP (วางไว้ขอบบนสุดของ Box ESP)
+                    if espNameEnabled and nameText then
+                        local myChar = localPlayer.Character
+                        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                        local distance = myHRP and math.floor((hrpTarget.Position - myHRP.Position).Magnitude) or 0
+                        
+                        nameText.Text = string.format("%s [%s] [%dm]", p.Name, role, distance)
+                        -- ตำแหน่งตัวหนังสือวางไว้อยู่เหนือขอบกล่อง Box ESP ขึ้นไป 20 พิกเซล
+                        nameText.Position = Vector2.new(pos.X, top.Y - 20)
+                        nameText.Visible = true
+                    elseif nameText then
+                        nameText.Visible = false
+                    end
+                end
+
+                -- Tracer Line
+                if espTracerEnabled and tracer then
+                    tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                    tracer.To = Vector2.new(pos.X, pos.Y)
+                    tracer.Visible = true
+                elseif tracer then
+                    tracer.Visible = false
+                end
+            else
+                if boxOutline then boxOutline.Visible = false end
+                if boxInline then boxInline.Visible = false end
+                if tracer then tracer.Visible = false end
+                if nameText then nameText.Visible = false end
+            end
+        end
+    end)
+
+    espObjects[p] = {
+        highlight = highlight,
+        boxOutline = boxOutline,
+        boxInline = boxInline,
+        tracer = tracer,
+        nameText = nameText,
+        connection = conn
+    }
+end
+
+for _, p in ipairs(players:GetPlayers()) do
+    if p ~= localPlayer then
+        p.CharacterAdded:Connect(function(c) applyESPToCharacter(p, c) end)
+        if p.Character then task.spawn(function() applyESPToCharacter(p, p.Character) end) end
+    end
+end
+
+players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function(c) applyESPToCharacter(p, c) end)
+end)
+players.PlayerRemoving:Connect(removeESP)
+
+-- ==================== OBJECT SEARCH ESP SYSTEM ====================
+local searchTargetText = ""
+local exactMatchEnabled = false
+local partialMatchEnabled = false
+local objectEspColor = Color3.fromRGB(255, 255, 0) -- สีเหลือง (ปรับเปลี่ยนได้)
+
+local searchedObjects = {}
+
+local function clearObjectESP()
+    for obj, data in pairs(searchedObjects) do
+        if data.highlight then pcall(function() data.highlight:Destroy() end) end
+        if data.boxOutline then pcall(function() data.boxOutline:Remove() end) end
+        if data.boxInline then pcall(function() data.boxInline:Remove() end) end
+        if data.nameText then pcall(function() data.nameText:Remove() end) end
+        if data.tracer then pcall(function() data.tracer:Remove() end) end
+    end
+    searchedObjects = {}
+end
+
+local function applyESPToObject(obj)
+    if searchedObjects[obj] then return end
+
+    local primaryPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")))
+    if not primaryPart then return end
+
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ObjESP_Highlight"
+    highlight.FillColor = objectEspColor
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.4
+    highlight.OutlineTransparency = 0
+    highlight.Parent = obj
+
+    local boxOutline, boxInline, nameText, tracer
+    if hasDrawingAPI then
+        pcall(function()
+            boxOutline = Drawing.new("Square")
+            boxOutline.Visible = false
+            boxOutline.Color = Color3.new(0, 0, 0)
+            boxOutline.Thickness = 3
+
+            boxInline = Drawing.new("Square")
+            boxInline.Visible = false
+            boxInline.Color = objectEspColor
+            boxInline.Thickness = 1
+
+            nameText = Drawing.new("Text")
+            nameText.Visible = false
+            nameText.Color = objectEspColor
+            nameText.Size = 14
+            nameText.Center = true
+            nameText.Outline = true
+
+            tracer = Drawing.new("Line")
+            tracer.Visible = false
+            tracer.Color = objectEspColor
+            tracer.Thickness = 1.5
+        end)
+    end
+
+    searchedObjects[obj] = {
+        highlight = highlight,
+        boxOutline = boxOutline,
+        boxInline = boxInline,
+        nameText = nameText,
+        tracer = tracer,
+        part = primaryPart
+    }
+end
+
+local function updateObjectESP()
+    clearObjectESP()
+    
+    if searchTargetText == "" or (not exactMatchEnabled and not partialMatchEnabled) then
+        return
+    end
+
+    local targetLower = string.lower(searchTargetText)
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") or obj:IsA("BasePart") then
+            -- ข้ามตัวละครของผู้เล่นเอง
+            if localPlayer.Character and obj:IsDescendantOf(localPlayer.Character) then
+                continue
+            end
+
+            local objName = obj.Name
+            local isMatch = false
+
+            if exactMatchEnabled then
+                -- ตรวจสอบชื่อแบบตรงเป๊ะ (Exact Match)
+                if objName == searchTargetText then
+                    isMatch = true
+                end
+            elseif partialMatchEnabled then
+                -- ตรวจสอบว่ามีคำนี้ผสมอยู่หรือไม่ (Partial Match)
+                if string.find(string.lower(objName), targetLower, 1, true) then
+                    isMatch = true
+                end
+            end
+
+            if isMatch then
+                applyESPToObject(obj)
+            end
+        end
+    end
+end
+
+-- RenderStepped สำหรับอัปเดตตำแหน่ง Drawing API ของ Object ESP
+rs.RenderStepped:Connect(function()
+    if not (exactMatchEnabled or partialMatchEnabled) then return end
+
+    for obj, data in pairs(searchedObjects) do
+        if not obj or not obj.Parent or not data.part or not data.part.Parent then
+            if data.highlight then pcall(function() data.highlight:Destroy() end) end
+            if data.boxOutline then pcall(function() data.boxOutline:Remove() end) end
+            if data.boxInline then pcall(function() data.boxInline:Remove() end) end
+            if data.nameText then pcall(function() data.nameText:Remove() end) end
+            if data.tracer then pcall(function() data.tracer:Remove() end) end
+            searchedObjects[obj] = nil
+            continue
+        end
+
+        if hasDrawingAPI then
+            local pos, onScreen = camera:WorldToViewportPoint(data.part.Position)
+            if onScreen then
+                local myChar = localPlayer.Character
+                local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                local distance = myHRP and math.floor((data.part.Position - myHRP.Position).Magnitude) or 0
+
+                -- Box Calculation
+                local extents = obj:IsA("Model") and obj:GetExtentsSize() or data.part.Size
+                local top, tOn = camera:WorldToViewportPoint(data.part.Position + Vector3.new(0, extents.Y / 2, 0))
+                local bottom, bOn = camera:WorldToViewportPoint(data.part.Position - Vector3.new(0, extents.Y / 2, 0))
+
+                if tOn and bOn and data.boxOutline and data.boxInline then
+                    local height = math.abs(top.Y - bottom.Y)
+                    local width = math.max(height * 0.8, 15)
+                    local topLeft = Vector2.new(pos.X - width / 2, top.Y)
+
+                    data.boxOutline.Size = Vector2.new(width, height)
+                    data.boxOutline.Position = topLeft
+                    data.boxOutline.Visible = true
+
+                    data.boxInline.Size = Vector2.new(width, height)
+                    data.boxInline.Position = topLeft
+                    data.boxInline.Visible = true
+                end
+
+                -- Name Text
+                if data.nameText then
+                    data.nameText.Text = string.format("%s [%dm]", obj.Name, distance)
+                    data.nameText.Position = Vector2.new(pos.X, top.Y - 18)
+                    data.nameText.Visible = true
+                end
+
+                -- Tracer Line
+                if data.tracer then
+                    data.tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                    data.tracer.To = Vector2.new(pos.X, pos.Y)
+                    data.tracer.Visible = true
+                end
+            else
+                if data.boxOutline then data.boxOutline.Visible = false end
+                if data.boxInline then data.boxInline.Visible = false end
+                if data.nameText then data.nameText.Visible = false end
+                if data.tracer then data.tracer.Visible = false end
+            end
+        end
+    end
+end)
+
+-- ==================== AIMBOT SYSTEM ====================
+local aimbotEnabled = false
+local aimbotTargetPart = "Head"
+local aimbotSmoothness = 1
+local wallCheckEnabled = false
+
+local fovEnabled = false
+local fovRadius = 150
+local fovColor = Color3.fromRGB(255, 255, 255)
+
+local fovCircle
+if hasDrawingAPI then
+    pcall(function()
+        fovCircle = Drawing.new("Circle")
+        fovCircle.Visible = false
+        fovCircle.Thickness = 1.5
+        fovCircle.NumSides = 64
+        fovCircle.Filled = false
+        fovCircle.Color = fovColor
+        fovCircle.Transparency = 0.8
+    end)
+end
+
+local function isVisible(targetPart, targetCharacter)
+    if not wallCheckEnabled then return true end
+    local origin = camera.CFrame.Position
+    local direction = (targetPart.Position - origin)
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {localPlayer.Character, camera}
+    raycastParams.IgnoreWater = true
+
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    if result then
+        local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
+        return hitModel == targetCharacter
+    end
+    return true
+end
+
+local function getClosestPlayerToCursor()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local mouseLocation = UserInputService:GetMouseLocation()
+
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer and p.Character then
+            local targetPart = p.Character:FindFirstChild(aimbotTargetPart)
+            local humanoid = p.Character:FindFirstChild("Humanoid")
+
+            if targetPart and humanoid and humanoid.Health > 0 then
+                local screenPoint, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local screenPos2D = Vector2.new(screenPoint.X, screenPoint.Y)
+                    local dist = (screenPos2D - mouseLocation).Magnitude
+
+                    local withinFov = not fovEnabled or (dist <= fovRadius)
+                    local visible = isVisible(targetPart, p.Character)
+
+                    if withinFov and visible and dist < shortestDistance then
+                        shortestDistance = dist
+                        closestPlayer = p
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+rs.RenderStepped:Connect(function()
+    local mouseLocation = UserInputService:GetMouseLocation()
+    if fovCircle then
+        fovCircle.Position = mouseLocation
+        fovCircle.Radius = fovRadius
+        fovCircle.Color = fovColor
+        fovCircle.Visible = aimbotEnabled and fovEnabled
+    end
+
+    if aimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local target = getClosestPlayerToCursor()
+        if target and target.Character then
+            local part = target.Character:FindFirstChild(aimbotTargetPart)
+            if part then
+                local currentCFrame = camera.CFrame
+                local targetCFrame = CFrame.new(currentCFrame.Position, part.Position)
+                camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 / math.max(aimbotSmoothness, 1))
+            end
+        end
+    end
+end)
+
+-- ==================== UI LOAD ====================
+local success, WindUI = pcall(function()
+    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+end)
+
+if not success or not WindUI then
+    warn("❌ Failed to load WindUI Library")
+    return
+end
+
+local Window = WindUI:CreateWindow({
+    Title = "BlackCrown-X",
+    Icon = "door-open",
+    Author = "by wdashsuicnsc and timxq_n.",
+    OpenButton = {
+        Title = "Open UI",
+        Icon = "monitor",
+        CornerRadius = UDim.new(0, 16),
+        StrokeThickness = 2,
+        Color = ColorSequence.new(Color3.fromHex("FF0F7B"), Color3.fromHex("F89B29")),
+        OnlyMobile = false,
+        Enabled = true,
+        Draggable = true
+    }
+})
+
+local MainTab = Window:Tab({ Title = "Main", Icon = "bird", Locked = false })
+local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = false })
+local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
+local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
+
+-- Main Tab UI
+
+-- Aimbot Tab UI
+local AimbotSection = AimbotTab:Section({ Title = "Aimbot Core", Icon = "target" })
+AimbotSection:Toggle({
+    Title = "Enable Aimbot",
+    Desc = "เปิดใช้งานระบบช่วยเล็งเป้าหมายอัตโนมัติ (คลิกขวาค้าง)",
+    Default = false,
+    Callback = function(state) aimbotEnabled = state end
+})
+
+AimbotSection:Toggle({
+    Title = "Wallcheck",
+    Desc = "ไม่ล็อกเป้าหมายหากมีสิ่งกีดขวาง/กำแพงบัง",
+    Default = false,
+    Callback = function(state) wallCheckEnabled = state end
+})
+
+AimbotSection:Dropdown({
+    Title = "Target Part",
+    Desc = "เลือกส่วนของร่างกายที่ต้องการให้ล็อกเป้า",
+    Values = {"Head", "HumanoidRootPart"},
+    Value = "Head",
+    Callback = function(v) aimbotTargetPart = v end
+})
+
+AimbotSection:Input({
+    Title = "Smoothness",
+    Desc = "ปรับความนุ่มนวลในการหัน (1 = ล็อกทันที)",
+    Value = "1",
+    Placeholder = "เช่น 1, 2, 5...",
+    Callback = function(val)
+        local num = tonumber(val)
+        if num and num > 0 then aimbotSmoothness = num end
+    end
+})
+
+local FOVSection = AimbotTab:Section({ Title = "FOV Customization", Icon = "disc" })
+FOVSection:Toggle({
+    Title = "Enable FOV Circle",
+    Desc = "แสดงวงกลมกำหนดระยะการล็อกเป้า",
+    Default = false,
+    Callback = function(state) fovEnabled = state end
+})
+
+FOVSection:Input({
+    Title = "FOV Radius",
+    Desc = "ปรับขนาดรัศมีวงกลม FOV (ค่าเริ่มต้น: 150)",
+    Value = "150",
+    Placeholder = "เช่น 100, 150...",
+    Callback = function(val)
+        local num = tonumber(val)
+        if num and num > 0 then fovRadius = num end
+    end
+})
+
+FOVSection:Colorpicker({
+    Title = "FOV Circle Color",
+    Desc = "เลือกสีสำหรับวงกลม FOV",
+    Default = Color3.fromRGB(255, 255, 255),
+    Callback = function(color) fovColor = color end
+})
+
+-- ESP Tab UI
+local ESPSettingsSection = ESPTab:Section({ Title = "Visual Toggles", Icon = "eye" })
+ESPSettingsSection:Toggle({
+    Title = "Enable Name & Distance",
+    Desc = "แสดงชื่อและระยะทางบนหัวกล่อง Box ESP",
+    Default = false,
+    Callback = function(state) espNameEnabled = state end
+})
+
+ESPSettingsSection:Toggle({
+    Title = "Enable Box ESP",
+    Desc = "แสดงกล่องสี่เหลี่ยมล้อมรอบตัวผู้เล่น",
+    Default = false,
+    Callback = function(state) espBoxEnabled = state end
+})
+
+ESPSettingsSection:Toggle({
+    Title = "Enable Tracer Line",
+    Desc = "แสดงเส้นลากจากล่างหน้าจอไปยังเป้าหมาย",
+    Default = false,
+    Callback = function(state) espTracerEnabled = state end
+})
+
+ESPSettingsSection:Toggle({
+    Title = "Enable Highlight ESP",
+    Desc = "แสดงแสงออร่าเรืองแสงครอบตัวผู้เล่น",
+    Default = false,
+    Callback = function(state) espHighlightEnabled = state end
+})
+
+local ESPColorSection = ESPTab:Section({ Title = "Role Colors Customization", Icon = "palette" })
+ESPColorSection:Colorpicker({
+    Title = "Murderer Color",
+    Desc = "เลือกสีสำหรับ ESP ของ ฆาตกร (Murderer)",
+    Default = Color3.fromRGB(255, 0, 0),
+    Callback = function(color) murdererColor = color end
+})
+
+ESPColorSection:Colorpicker({
+    Title = "Sheriff Color",
+    Desc = "เลือกสีสำหรับ ESP ของ นายอำเภอ (Sheriff)",
+    Default = Color3.fromRGB(0, 120, 255),
+    Callback = function(color) sheriffColor = color end
+})
+
+ESPColorSection:Colorpicker({
+    Title = "Innocent Color",
+    Desc = "เลือกสีสำหรับ ESP ของ ประชาชนทั่วไป (Innocent)",
+    Default = Color3.fromRGB(0, 255, 0),
+    Callback = function(color) innocentColor = color end
+})
+
+local ObjectSearchSection = ESPTab:Section({ Title = "Item / Object Search ESP", Icon = "search" })
+
+ObjectSearchSection:Input({
+    Title = "Search Object Name",
+    Desc = "พิมพ์ชื่อไอเทม/วัตถุที่ต้องการแสดง ESP",
+    Value = "",
+    Placeholder = "เช่น Door, Chest, Coin...",
+    Callback = function(val)
+        searchTargetText = val
+        updateObjectESP()
+    end
+})
+
+local exactToggle, partialToggle
+
+exactToggle = ObjectSearchSection:Toggle({
+    Title = "Exact Match ESP (ชื่อตรงเป๊ะๆ)",
+    Desc = "เปิด ESP เฉพาะออบเจกต์ที่ชื่อตรงเป๊ะทุกตัวอักษร",
+    Default = false,
+    Callback = function(state)
+        exactMatchEnabled = state
+        if state and partialMatchEnabled then
+            partialMatchEnabled = false
+            if partialToggle and partialToggle.SetValue then
+                partialToggle:SetValue(false)
+            end
+        end
+        updateObjectESP()
+    end
+})
+
+partialToggle = ObjectSearchSection:Toggle({
+    Title = "Partial Match ESP (ตรวจเฉพาะมีคำนี้ผสม)",
+    Desc = "เปิด ESP หากชื่อวัตถุมีคำนี้ประกอบอยู่ (ไม่จำเป็นต้องตรงเป๊ะ)",
+    Default = false,
+    Callback = function(state)
+        partialMatchEnabled = state
+        if state and exactMatchEnabled then
+            exactMatchEnabled = false
+            if exactToggle and exactToggle.SetValue then
+                exactToggle:SetValue(false)
+            end
+        end
+        updateObjectESP()
+    end
+})
+
+ObjectSearchSection:Colorpicker({
+    Title = "Search ESP Color",
+    Desc = "เลือกสีสำหรับไฮไลท์และข้อความไอเทมค้นหา",
+    Default = Color3.fromRGB(255, 255, 0),
+    Callback = function(color)
+        objectEspColor = color
+        updateObjectESP()
+    end
+})
+
+-- Teleport Tab UI
+local TPSection = TPTab:Section({ Title = "Player Teleportation", Icon = "navigation" })
+
+local tpPlayerDropdown
+tpPlayerDropdown = TPSection:Dropdown({
+    Title = "Select Target Player",
+    Desc = "เลือกผู้เล่นที่ต้องการวาร์ปไปหาทันที",
+    Values = getPlayerList(),
+    Value = "",
+    Callback = function(v) selectedPlayerName = v end
+})
+
+TPSection:Button({
+    Title = "Refresh Player List",
+    Desc = "อัปเดตรายชื่อผู้เล่นล่าสุด",
+    Callback = function()
+        local updatedList = getPlayerList()
+        if tpPlayerDropdown and tpPlayerDropdown.SetValues then
+            tpPlayerDropdown:SetValues(updatedList)
+        elseif tpPlayerDropdown and tpPlayerDropdown.Refresh then
+            tpPlayerDropdown:Refresh(updatedList, true)
+        end
+    end
+})
+
+TPSection:Button({
+    Title = "Teleport to Player",
+    Desc = "วาร์ปตัวละครของคุณไปหาผู้เล่นที่เลือกทันที",
+    Callback = function()
+        local targetPlayer = players:FindFirstChild(selectedPlayerName)
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local myChar = localPlayer.Character
+            if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                myChar.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+            end
+        end
+    end
+})
+
+local TrackingSection = TPTab:Section({ Title = "Tween", Icon = "crosshair" })
+
+local mainPlayerDropdown = TrackingSection:Dropdown({
+    Title = "Select Player",
+    Desc = "เลือกผู้เล่นที่ต้องการติดตาม",
+    Values = getPlayerList(),
+    Value = "",
+    Callback = function(v) selectedPlayerName = v end
+})
+
+TrackingSection:Button({
+    Title = "Refresh Player List",
+    Desc = "อัปเดตรายชื่อผู้เล่นล่าสุด",
+    Callback = function()
+        local updatedList = getPlayerList()
+        if mainPlayerDropdown then
+            if typeof(mainPlayerDropdown.SetValues) == "function" then
+                mainPlayerDropdown:SetValues(updatedList)
+            elseif typeof(mainPlayerDropdown.Refresh) == "function" then
+                mainPlayerDropdown:Refresh(updatedList, true)
+            elseif mainPlayerDropdown.Values then
+                mainPlayerDropdown.Values = updatedList
+            end
+        end
+    end
+})
+
+TrackingSection:Dropdown({
+    Title = "Tween Direction",
+    Desc = "เลือกทิศทางที่จะ Tween ไปหาเป้าหมาย",
+    Values = {"Behind", "Front", "Above", "Below", "Left", "Right"},
+    Value = "Behind",
+    Callback = function(v) tweenDirection = v end
+})
+
+TrackingSection:Input({
+    Title = "Tween Distance",
+    Desc = "ใส่ระยะห่างจากเป้าหมาย (ค่าเริ่มต้น: 5)",
+    Value = "5",
+    Placeholder = "เช่น 3, 5, 10...",
+    Callback = function(val)
+        local num = tonumber(val)
+        if num then tweenDistance = num end
+    end
+})
+
+TrackingSection:Toggle({
+    Title = "Auto Look at Target",
+    Desc = "เปิด/ปิด หันหน้าหาเป้าหมาย (ล็อคตัวตรง ไม่เอียงกระดาน)",
+    Default = false,
+    Callback = function(state)
+        isAutoLooking = state
+    end
+})
+
+TrackingSection:Toggle({
+    Title = "Create Platform Under Feet",
+    Desc = "สร้างพาร์ทรองใต้เท้าขณะ Tween",
+    Default = true,
+    Callback = function(state)
+        createPlatform = state
+        if not state and tempPlatform then
+            tempPlatform:Destroy()
+            tempPlatform = nil
+        end
+    end
+})
+
+TrackingSection:Toggle({
+    Title = "Enable Relative Tween + BodyVelocity",
+    Desc = "พุ่งตัวไปยังทิศทางที่เลือกอย่างลื่นไหล",
+    Default = false,
+    Callback = function(state)
+        isTweeningRelative = state
+        
+        local myChar = localPlayer.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+        if not isTweeningRelative then
+            if tempPlatform then
+                tempPlatform:Destroy()
+                tempPlatform = nil
+            end
+            if myHRP then
+                removeBodyVelocity(myHRP)
+            end
+        end
+
+        if isTweeningRelative then
+            task.spawn(function()
+                while isTweeningRelative do
+                    local targetPlayer = players:FindFirstChild(selectedPlayerName)
+                    local currentChar = localPlayer.Character
+                    local currentHRP = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
+                    
+                    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") and currentHRP then
+                        local targetHRP = targetPlayer.Character.HumanoidRootPart
+                        local targetPos = getTargetOffsetPosition(targetHRP, tweenDirection, tweenDistance)
+
+                        local finalCF
+                        if isAutoLooking then
+                            -- คำนวณจุดมองให้อยู่ในแนวราบ (ตัดแกน Y ออกเฉพาะตอนคำนวณการหมุน)
+                            -- เพื่อให้ตัวละคร "หันหน้าไปหาเป้าหมาย" โดยที่ตัวยังตั้งตรง ไม่ลอยเอียง 45 องศา
+                            local lookAtHorizontal = Vector3.new(targetHRP.Position.X, targetPos.Y, targetHRP.Position.Z)
+                            
+                            -- ป้องกัน Error กรณีตัวละครอยู่ตรงหัวเป้าหมายพอดีเป๊ะ
+                            if (lookAtHorizontal - targetPos).Magnitude > 0.001 then
+                                finalCF = CFrame.lookAt(targetPos, lookAtHorizontal)
+                            else
+                                finalCF = CFrame.new(targetPos)
+                            end
+                        else
+                            -- ปิด Auto Look: หันหน้าทิศเดียวกับเป้าหมายแบบปกติ
+                            finalCF = CFrame.new(targetPos) * (targetHRP.CFrame - targetHRP.CFrame.Position)
+                        end
+
+                        updatePlatform(targetPos)
+                        applyBodyVelocity(currentHRP, targetPos)
+
+                        local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
+                        local tween = TweenService:Create(currentHRP, tweenInfo, {CFrame = finalCF})
+                        tween:Play()
+                    else
+                        if currentHRP then removeBodyVelocity(currentHRP) end
+                    end
+                    task.wait(0.15)
+                end
+            end)
+        end
+    end
+})
+
+-- Misc Tab UI
+local SpeedSection = MiscTab:Section({ Title = "Speed Controls", Icon = "gauge" })
+SpeedSection:Input({
+    Title = "Custom Speed Input",
+    Desc = "ใส่เลขความเร็วที่ต้องการ",
+    Value = "",
+    Placeholder = "เช่น 30, 50...",
+    Callback = function(input)
+        local num = tonumber(input)
+        customSpeed = num or nil
+        if speedConnection then setSpeedLock(customSpeed or defaultSpeed) end
+    end
+})
+
+SpeedSection:Toggle({
+    Title = "Lock Speed",
+    Desc = "ล็อคความเร็วการเดินไว้ตามค่าที่ตั้ง",
+    Default = false,
+    Callback = function(State)
+        if State then
+            setSpeedLock(customSpeed or defaultSpeed)
+        else
+            if speedConnection then
+                speedConnection:Disconnect()
+                speedConnection = nil
+            end
+        end
+    end
+})
+
+SpeedSection:Button({
+    Title = "Reset to Default Speed",
+    Desc = "ปรับความเร็วกลับเป็นค่าดั้งเดิม",
+    Callback = function()
+        local hum = localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid")
+        if hum then
+            if speedConnection then
+                speedConnection:Disconnect()
+                speedConnection = nil
+            end
+            hum.WalkSpeed = defaultSpeed
+        end
+    end
+})
+
+local SafetySection = MiscTab:Section({ Title = "Safety", Icon = "shield" })
+SafetySection:Toggle({
+    Title = "Safe Mode (< 50% HP TP)",
+    Desc = "วาร์ปหนีอัตโนมัติเมื่อเลือดต่ำกว่า 50%",
+    Default = false,
+    Callback = function(state)
+        safeModeEnabled = state
+        if safeModeEnabled then
+            task.spawn(function()
+                while safeModeEnabled do
+                    local myChar = localPlayer.Character
+                    if myChar and myChar:FindFirstChild("Humanoid") and myChar:FindFirstChild("HumanoidRootPart") then
+                        local humanoid = myChar.Humanoid
+                        local myHRP = myChar.HumanoidRootPart
+                        if humanoid.Health > 0 and (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
+                            myHRP.CFrame = CFrame.new(safeModeLocation)
+                            task.wait(2)
+                        end
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+local ToolsSection = MiscTab:Section({ Title = "Tools", Icon = "wrench" })
+ToolsSection:Button({
+    Title = "Get TP Tool",
+    Desc = "ให้เครื่องมือคลิกเพื่อวาร์ปในกระเป๋าเป้",
+    Callback = function()
+        local plr = localPlayer
+        if plr then
+            local mouse = plr:GetMouse()
+            local tptool = Instance.new("Tool")
+            tptool.Name = "Click TP"
+            tptool.RequiresHandle = false
+            tptool.CanBeDropped = false
+            tptool.Parent = plr:FindFirstChildOfClass("Backpack") or plr:WaitForChild("Backpack")
+
+            tptool.Activated:Connect(function()
+                local character = plr.Character
+                if character then
+                    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+                    if humanoidRootPart and mouse.Target then
+                        humanoidRootPart.CFrame = CFrame.new(mouse.Hit.X, mouse.Hit.Y + 3, mouse.Hit.Z)
+                    end
+                end
+            end)
+        end
+    end
+})
+
+-- ตั้งค่าปุ่มกดเปิด-ปิดเมนู UI (ปุ่ม Alt ซ้าย)
+Window:SetToggleKey(Enum.KeyCode.LeftAlt)
