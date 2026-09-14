@@ -63,37 +63,99 @@ local function getPlayerList()
     return list
 end
 
--- ==================== UI INITIALIZATION ====================
-local success, WindUI = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-end)
+-- ==================== FULL MOVEMENT & EMOTE MIRROR SYSTEM ====================
+local emoteTargetPlayerName = ""
+local isCopyingPlayerEmote = false
+local mirrorConnection = nil
 
-if not success or not WindUI then
-    warn("❌ Failed to load WindUI Library")
-    return
+local customEmoteIdInput = ""
+local customTrack = nil
+
+-- รายชื่อข้อต่อหลักในตัวละคร (ทั้ง R6 และ R15)
+local jointNames = {
+    "RootJoint", "Neck", "Left Shoulder", "Right Shoulder", "Left Hip", "Right Hip", -- R6
+    "Waist", "Spine", "LeftShoulder", "RightShoulder", "LeftUpperArm", "RightUpperArm", -- R15
+    "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand", "LeftHip", "RightHip",
+    "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"
+}
+
+-- ฟังก์ชันหยุดการซิงค์ท่าทาง
+local function stopMirroring()
+    if mirrorConnection then
+        mirrorConnection:Disconnect()
+        mirrorConnection = nil
+    end
 end
 
-local Window = WindUI:CreateWindow({
-    Title = "BlackCrown-X",
-    Icon = "door-open",
-    Author = "by wdashsuicnsc and timxq_n.",
-    OpenButton = {
-        Title = "Open UI",
-        Icon = "monitor",
-        CornerRadius = UDim.new(0, 16),
-        StrokeThickness = 2,
-        Color = ColorSequence.new(Color3.fromHex("FF0F7B"), Color3.fromHex("F89B29")),
-        OnlyMobile = false,
-        Enabled = true,
-        Draggable = true
-    }
-})
+-- ฟังก์ชันดึง Motor6D ทั้งหมดในตัวละคร
+local function getMotors(character)
+    local motors = {}
+    if not character then return motors end
+    for _, desc in ipairs(character:GetDescendants()) do
+        if desc:IsA("Motor6D") then
+            motors[desc.Name] = desc
+        end
+    end
+    return motors
+end
 
-local MainTab = Window:Tab({ Title = "Main", Icon = "bird", Locked = false })
-local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = false })
-local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
-local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
-local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
+-- ฟังก์ชันเริ่มคัดลอกการเคลื่อนไหวแบบ Real-time (Mirroring)
+local function startMirroringTarget(targetPlayerName)
+    stopMirroring()
+
+    mirrorConnection = rs.RenderStepped:Connect(function()
+        if not isCopyingPlayerEmote then
+            stopMirroring()
+            return
+        end
+
+        local targetPlayer = players:FindFirstChild(targetPlayerName)
+        local myChar = localPlayer.Character
+        
+        if targetPlayer and targetPlayer.Character and myChar then
+            local targetMotors = getMotors(targetPlayer.Character)
+            local myMotors = getMotors(myChar)
+
+            -- คัดลอกค่า C6/Transform ของทุกข้อต่อตรงๆ (รองรับทั้ง Emote ปกติ และสคริปต์ดัดข้อต่อ)
+            for name, targetMotor in pairs(targetMotors) do
+                local myMotor = myMotors[name]
+                if myMotor then
+                    myMotor.Transform = targetMotor.Transform
+                end
+            end
+        end
+    end)
+end
+
+local function playEmoteById(animId)
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+
+    local animator = hum:FindFirstChildOfClass("Animator") or hum
+    local cleanId = tostring(animId):gsub("%D", "")
+    if cleanId == "" then return nil end
+    
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. cleanId
+    
+    local success, track = pcall(function()
+        return animator:LoadAnimation(anim)
+    end)
+
+    if success and track then
+        track:Play()
+        return track
+    end
+    return nil
+end
+
+local function stopCustomEmotes()
+    if customTrack then
+        customTrack:Stop()
+        customTrack = nil
+    end
+end
 
 -- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
 
@@ -182,6 +244,38 @@ local function removeBodyVelocity(hrp)
         end
     end
 end
+
+-- ==================== UI INITIALIZATION ====================
+local success, WindUI = pcall(function()
+    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+end)
+
+if not success or not WindUI then
+    warn("❌ Failed to load WindUI Library")
+    return
+end
+
+local Window = WindUI:CreateWindow({
+    Title = "BlackCrown-X",
+    Icon = "door-open",
+    Author = "by wdashsuicnsc and timxq_n.",
+    OpenButton = {
+        Title = "Open UI",
+        Icon = "monitor",
+        CornerRadius = UDim.new(0, 16),
+        StrokeThickness = 2,
+        Color = ColorSequence.new(Color3.fromHex("FF0F7B"), Color3.fromHex("F89B29")),
+        OnlyMobile = false,
+        Enabled = true,
+        Draggable = true
+    }
+})
+
+local MainTab = Window:Tab({ Title = "Main", Icon = "bird", Locked = false })
+local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = false })
+local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
+local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
 
 -- ==================== MAIN TAB UI ====================
 
@@ -983,6 +1077,116 @@ SpeedSection:Button({
                 speedConnection = nil
             end
             hum.WalkSpeed = defaultSpeed
+        end
+    end
+})
+
+local EmoteSection = MiscTab:Section({ Title = "Emote & Animation Copier", Icon = "smile" })
+
+-- 1. ระบบ Copy Emote จากผู้เล่น
+local emotePlayerDropdown = EmoteSection:Dropdown({
+    Title = "Select Target Player",
+    Desc = "เลือกผู้เล่นที่ต้องการคัดลอกท่าทาง (Emote)",
+    Values = getPlayerList(),
+    Value = "",
+    Callback = function(v)
+        emoteTargetPlayerName = v
+    end
+})
+
+EmoteSection:Button({
+    Title = "Refresh Player List",
+    Desc = "อัปเดตรายชื่อผู้เล่นล่าสุด",
+    Callback = function()
+        local updatedList = getPlayerList()
+        if emotePlayerDropdown then
+            if typeof(emotePlayerDropdown.SetValues) == "function" then
+                emotePlayerDropdown:SetValues(updatedList)
+            elseif typeof(emotePlayerDropdown.Refresh) == "function" then
+                emotePlayerDropdown:Refresh(updatedList, true)
+            elseif emotePlayerDropdown.Values then
+                emotePlayerDropdown.Values = updatedList
+            end
+        end
+    end
+})
+
+EmoteSection:Toggle({
+    Title = "Copy Player Emote & Movement",
+    Desc = "ก็อปปี้ท่าทาง/Emote/สคริปต์ดัดท่า ของผู้เล่นทันทีแบบ Real-time",
+    Default = false,
+    Callback = function(state)
+        isCopyingPlayerEmote = state
+
+        if not state then
+            stopMirroring()
+            stopCustomEmotes()
+        else
+            if emoteTargetPlayerName ~= "" then
+                stopCustomEmotes()
+                startMirroringTarget(emoteTargetPlayerName)
+            end
+        end
+    end
+})
+
+EmoteSection:Toggle({
+    Title = "Copy Player Emote",
+    Desc = "เปิด/ปิด การลอกเลียนแบบท่าทางของผู้เล่นที่เลือกทันที",
+    Default = false,
+    Callback = function(state)
+        isCopyingPlayerEmote = state
+
+        if not state then
+            if copyEmoteLoopConnection then
+                copyEmoteLoopConnection:Disconnect()
+                copyEmoteLoopConnection = nil
+            end
+            stopCustomEmotes()
+        else
+            task.spawn(function()
+                local lastAnimId = ""
+                while isCopyingPlayerEmote do
+                    local targetPlayer = players:FindFirstChild(emoteTargetPlayerName)
+                    if targetPlayer and targetPlayer.Character then
+                        local targetHum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        local currentAnimId = getActiveAnimationId(targetHum)
+
+                        if currentAnimId and currentAnimId ~= lastAnimId then
+                            lastAnimId = currentAnimId
+                            stopCustomEmotes()
+                            customTrack = playEmoteById(currentAnimId)
+                        end
+                    end
+                    task.wait(0.3)
+                end
+            end)
+        end
+    end
+})
+
+-- 2. ระบบ Play Emote จาก Animation ID
+EmoteSection:Input({
+    Title = "Custom Emote / Anim ID",
+    Desc = "ใส่ ID ของ Emote หรือ Animation ที่ต้องการเล่น",
+    Value = "",
+    Placeholder = "ใส่หมายเลข ID เช่น 369675713...",
+    Callback = function(val)
+        customEmoteIdInput = val
+    end
+})
+
+EmoteSection:Toggle({
+    Title = "Play Custom ID Emote",
+    Desc = "เปิดเพื่อเล่น Emote จาก ID / ปิดเพื่อหยุดเล่น",
+    Default = false,
+    Callback = function(state)
+        isPlayingCustomEmote = state
+        if state then
+            stopCustomEmotes()
+            customTrack = playEmoteById(customEmoteIdInput)
+        else
+            stopCustomEmotes()
         end
     end
 })
