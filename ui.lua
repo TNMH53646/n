@@ -1295,4 +1295,6 @@ ToolsSection:Button({
     end
 })
 
+print("load")
+
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
