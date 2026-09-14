@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, deprecated
 -- ==================== FIXED SCRIPT ====================ใหม่
 
 local players = game:GetService("Players")
@@ -20,46 +21,6 @@ end)
 ProximityService.PromptShown:Connect(function(prompt)
     prompt.HoldDuration = 0
 end)
-
-local AntiFling = {}
-AntiFling.Enabled = false
-
-local RunService = game:GetService("RunService")
-
-local MAX_VELOCITY = 90 -- ปรับตาม threshold ที่เหมาะกับเกม
-local connection
-
-local function getHRP()
-    local char = LocalPlayer.Character
-    return char and char:FindFirstChild("HumanoidRootPart")
-end
-
-function AntiFling.Start()
-    if connection then return end
-    connection = RunService.Heartbeat:Connect(function()
-        if not AntiFling.Enabled then return end
-        local hrp = getHRP()
-        if not hrp then return end
-
-        local vel = hrp.AssemblyLinearVelocity
-        local speed = vel.Magnitude
-
-        if speed > MAX_VELOCITY then
-            -- ตัดความเร็วที่ผิดปกติทิ้ง กัน fling
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end
-    end)
-end
-
-function AntiFling.Stop()
-    if connection then
-        connection:Disconnect()
-        connection = nil
-    end
-end
-
-return AntiFling
 
 -- Variables
 local selectedPlayerName = ""
@@ -282,6 +243,44 @@ local function removeBodyVelocity(hrp)
         if bv then
             bv:Destroy()
         end
+    end
+end
+
+local AntiFling = {}
+AntiFling.Enabled = false
+
+local RunService = game:GetService("RunService")
+
+local MAX_VELOCITY = 90 -- ปรับตาม threshold ที่เหมาะกับเกม
+local connection
+
+local function getHRP()
+    local char = localPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+function AntiFling.Start()
+    if connection then return end
+    connection = RunService.Heartbeat:Connect(function()
+        if not AntiFling.Enabled then return end
+        local hrp = getHRP()
+        if not hrp then return end
+
+        local vel = hrp.AssemblyLinearVelocity
+        local speed = vel.Magnitude
+
+        if speed > MAX_VELOCITY then
+            -- ตัดความเร็วที่ผิดปกติทิ้ง กัน fling
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end
+    end)
+end
+
+function AntiFling.Stop()
+    if connection then
+        connection:Disconnect()
+        connection = nil
     end
 end
 
