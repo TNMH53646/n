@@ -1,4 +1,4 @@
----@diagnostic disable: undefined-global, deprecated
+
 -- ==================== FIXED SCRIPT ====================ใหม่
 
 local players = game:GetService("Players")
