@@ -24,9 +24,7 @@ end)
 local AntiFling = {}
 AntiFling.Enabled = false
 
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
 
 local MAX_VELOCITY = 90 -- ปรับตาม threshold ที่เหมาะกับเกม
 local connection
