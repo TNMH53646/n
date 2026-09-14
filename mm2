@@ -1,4 +1,4 @@
--- ==================== FIXED & ROBUST SCRIPT ====================
+-- ==================== FIXED SCRIPT ====================ใหม่
 
 local players = game:GetService("Players")
 local localPlayer = players.LocalPlayer
@@ -28,7 +28,183 @@ local isTweeningBehind = false
 local safeModeEnabled = false
 local safeModeLocation = Vector3.new(0, 50, 0)
 
--- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
+local defaultSpeed = 16
+local customSpeed = nil
+local speedConnection
+
+task.spawn(function()
+    local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then defaultSpeed = hum.WalkSpeed end
+end)
+
+local function setSpeedLock(speed)
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    if hum then
+        hum.WalkSpeed = speed
+        if speedConnection then speedConnection:Disconnect() end
+        speedConnection = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if hum.WalkSpeed ~= speed then
+                hum.WalkSpeed = speed
+            end
+        end)
+    end
+end
+
+local function getPlayerList()
+    local list = {}
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer then
+            table.insert(list, p.Name)
+        end
+    end
+    if #list == 0 then table.insert(list, "None") end
+    return list
+end
+
+-- ==================== FULL MOVEMENT & EMOTE MIRROR SYSTEM ====================
+local emoteTargetPlayerName = ""
+local isCopyingPlayerEmote = false
+local mirrorConnection = nil
+
+local customEmoteIdInput = ""
+local customTrack = nil
+local isPlayingCustomEmote = false
+
+-- รายชื่อข้อต่อหลักในตัวละคร (ทั้ง R6 และ R15)
+local jointNames = {
+    "RootJoint", "Neck", "Left Shoulder", "Right Shoulder", "Left Hip", "Right Hip", -- R6
+    "Waist", "Spine", "LeftShoulder", "RightShoulder", "LeftUpperArm", "RightUpperArm", -- R15
+    "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand", "LeftHip", "RightHip",
+    "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"
+}
+
+-- ฟังก์ชันหยุดการซิงค์ท่าทาง
+local function stopMirroring()
+    if mirrorConnection then
+        mirrorConnection:Disconnect()
+        mirrorConnection = nil
+    end
+end
+
+-- ฟังก์ชันดึง Motor6D ทั้งหมดในตัวละคร
+local function getMotors(character)
+    local motors = {}
+    if not character then return motors end
+    for _, desc in ipairs(character:GetDescendants()) do
+        if desc:IsA("Motor6D") then
+            motors[desc.Name] = desc
+        end
+    end
+    return motors
+end
+
+-- ฟังก์ชันเริ่มคัดลอกการเคลื่อนไหวแบบ Real-time (Mirroring)
+local function startMirroringTarget(targetPlayerName)
+    stopMirroring()
+
+    mirrorConnection = rs.RenderStepped:Connect(function()
+        if not isCopyingPlayerEmote then
+            stopMirroring()
+            return
+        end
+
+        local targetPlayer = players:FindFirstChild(targetPlayerName)
+        local myChar = localPlayer.Character
+        
+        if targetPlayer and targetPlayer.Character and myChar then
+            local targetMotors = getMotors(targetPlayer.Character)
+            local myMotors = getMotors(myChar)
+
+            -- คัดลอกค่า C6/Transform ของทุกข้อต่อตรงๆ (รองรับทั้ง Emote ปกติ และสคริปต์ดัดข้อต่อ)
+            for name, targetMotor in pairs(targetMotors) do
+                local myMotor = myMotors[name]
+                if myMotor then
+                    myMotor.Transform = targetMotor.Transform
+                end
+            end
+        end
+    end)
+end
+
+local function playEmoteById(animId)
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+
+    local animator = hum:FindFirstChildOfClass("Animator") or hum
+    local cleanId = tostring(animId):gsub("%D", "")
+    if cleanId == "" then return nil end
+    
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. cleanId
+    
+    local success, track = pcall(function()
+        return animator:LoadAnimation(anim)
+    end)
+
+    if success and track then
+        track:Play()
+        return track
+    end
+    return nil
+end
+
+local function stopCustomEmotes()
+    if customTrack then
+        customTrack:Stop()
+        customTrack = nil
+    end
+end
+
+-- ดึง AnimationId ของท่าที่กำลังเล่นอยู่ (เลือกตัวที่ Priority สูงสุด เพื่อข้าม Idle/Walk)
+local function getActiveAnimationId(humanoid)
+    if not humanoid then return nil end
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return nil end
+
+    local bestId, bestPriority = nil, -1
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        if track.Animation and track.Priority.Value > bestPriority then
+            bestId = track.Animation.AnimationId
+            bestPriority = track.Priority.Value
+        end
+    end
+    return bestId
+end
+
+-- ==================== UI INITIALIZATION ====================
+local success, WindUI = pcall(function()
+    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+end)
+
+if not success or not WindUI then
+    warn("❌ Failed to load WindUI Library")
+    return
+end
+
+local Window = WindUI:CreateWindow({
+    Title = "BlackCrown-X",
+    Icon = "door-open",
+    Author = "by wdashsuicnsc and timxq_n.",
+    OpenButton = {
+        Title = "Open UI",
+        Icon = "monitor",
+        CornerRadius = UDim.new(0, 16),
+        StrokeThickness = 2,
+        Color = ColorSequence.new(Color3.fromHex("FF0F7B"), Color3.fromHex("F89B29")),
+        OnlyMobile = false,
+        Enabled = true,
+        Draggable = true
+    }
+})
+
+local MainTab = Window:Tab({ Title = "Main", Icon = "bird", Locked = false })
+local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = false })
+local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
+local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
 
 -- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
 
@@ -118,87 +294,31 @@ local function removeBodyVelocity(hrp)
     end
 end
 
-local defaultSpeed = 16
-local customSpeed = nil
-local speedConnection
+-- ==================== MAIN TAB UI ====================
 
-task.spawn(function()
-    local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-    local hum = char:WaitForChild("Humanoid", 5)
-    if hum then defaultSpeed = hum.WalkSpeed end
-end)
 
-local function setSpeedLock(speed)
-    local char = localPlayer.Character
-    local hum = char and char:FindFirstChild("Humanoid")
-    if hum then
-        hum.WalkSpeed = speed
-        if speedConnection then speedConnection:Disconnect() end
-        speedConnection = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-            if hum.WalkSpeed ~= speed then
-                hum.WalkSpeed = speed
-            end
-        end)
-    end
-end
+-- ==================== ESP SYSTEM ====================
+local players = game:GetService("Players")
+local rs = game:GetService("RunService")
+local localPlayer = players.LocalPlayer
+local camera = workspace.CurrentCamera
 
-local function getPlayerList()
-    local list = {}
-    for _, p in ipairs(players:GetPlayers()) do
-        if p ~= localPlayer then
-            table.insert(list, p.Name)
-        end
-    end
-    if #list == 0 then table.insert(list, "None") end
-    return list
-end
-
--- ==================== FULLY FUNCTIONAL ROLE ESP SYSTEM ====================
 local espNameEnabled = false
 local espBoxEnabled = false
 local espTracerEnabled = false
 local espHighlightEnabled = false
-
--- กำหนดสีเริ่มต้นของแต่ละ Role
-local murdererColor = Color3.fromRGB(255, 0, 0)   -- สีฆาตกร (แดง)
-local sheriffColor = Color3.fromRGB(0, 120, 255)   -- สีนายอำเภอ (น้ำเงิน)
-local innocentColor = Color3.fromRGB(0, 255, 0)   -- สีคนธรรมดา (เขียว)
-
+local espColor = Color3.fromRGB(255, 0, 0)
 local espObjects = {}
+
 local hasDrawingAPI = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
-
--- ฟังก์ชันเช็คอาวุธระบุบทบาท (Role Detection)
-local function getPlayerRole(p)
-    if not p or not p.Character then return "Innocent" end
-    local backpack = p:FindFirstChild("Backpack")
-    local char = p.Character
-    
-    local function checkTools(container)
-        if not container then return nil end
-        for _, item in ipairs(container:GetChildren()) do
-            if item:IsA("Tool") then
-                local nameLower = item.Name:lower()
-                if nameLower:find("gun") or nameLower:find("revolver") then
-                    return "Sheriff"
-                elseif nameLower:find("knife") or nameLower:find("dagger") then
-                    return "Murderer"
-                end
-            end
-        end
-        return nil
-    end
-
-    local role = checkTools(backpack) or checkTools(char)
-    return role or "Innocent"
-end
 
 local function removeESP(p)
     if espObjects[p] then
         if espObjects[p].connection then espObjects[p].connection:Disconnect() end
         if espObjects[p].highlight then espObjects[p].highlight:Destroy() end
-        if espObjects[p].nameText then pcall(function() espObjects[p].nameText:Remove() end) end
         if espObjects[p].boxOutline then pcall(function() espObjects[p].boxOutline:Remove() end) end
         if espObjects[p].boxInline then pcall(function() espObjects[p].boxInline:Remove() end) end
+        if espObjects[p].nameText then pcall(function() espObjects[p].nameText:Remove() end) end
         if espObjects[p].tracer then pcall(function() espObjects[p].tracer:Remove() end) end
         espObjects[p] = nil
     end
@@ -212,18 +332,16 @@ local function applyESPToCharacter(p, charModel)
     local humanoidTarget = charModel:WaitForChild("Humanoid", 5)
     if not hrpTarget or not humanoidTarget then return end
 
-    -- Highlight ESP
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Highlight"
-    highlight.FillColor = innocentColor
+    highlight.FillColor = espColor
     highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 0
     highlight.Enabled = espHighlightEnabled
     highlight.Parent = charModel
 
-    -- Drawing Elements (Box, Name & Tracer)
-    local boxOutline, boxInline, tracer, nameText
+    local boxOutline, boxInline, nameText, tracer
     if hasDrawingAPI then
         pcall(function()
             boxOutline = Drawing.new("Square")
@@ -233,20 +351,20 @@ local function applyESPToCharacter(p, charModel)
 
             boxInline = Drawing.new("Square")
             boxInline.Visible = false
-            boxInline.Color = innocentColor
+            boxInline.Color = espColor
             boxInline.Thickness = 1
-
-            tracer = Drawing.new("Line")
-            tracer.Visible = false
-            tracer.Color = innocentColor
-            tracer.Thickness = 1.5
 
             nameText = Drawing.new("Text")
             nameText.Visible = false
+            nameText.Color = espColor
+            nameText.Size = 14
             nameText.Center = true
             nameText.Outline = true
-            nameText.Size = 18 -- ขนาดตัวหนังสือ
-            nameText.Color = innocentColor
+
+            tracer = Drawing.new("Line")
+            tracer.Visible = false
+            tracer.Color = espColor
+            tracer.Thickness = 1.5
         end)
     end
 
@@ -256,21 +374,13 @@ local function applyESPToCharacter(p, charModel)
             return
         end
 
-        -- คำนวณสีตาม Role ของผู้เล่น
-        local role = getPlayerRole(p)
-        local currentColor = innocentColor
-        if role == "Murderer" then
-            currentColor = murdererColor
-        elseif role == "Sheriff" then
-            currentColor = sheriffColor
-        end
+        highlight.FillColor = espColor
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        if boxInline then boxInline.Color = espColor end
+        if nameText then nameText.Color = espColor end
+        if tracer then tracer.Color = espColor end
 
-        -- ปรับปรุงค่าสี
-        highlight.FillColor = currentColor
         highlight.Enabled = espHighlightEnabled
-        if boxInline then boxInline.Color = currentColor end
-        if tracer then tracer.Color = currentColor end
-        if nameText then nameText.Color = currentColor end
 
         if hasDrawingAPI then
             local pos, onScreen = camera:WorldToViewportPoint(hrpTarget.Position)
@@ -280,53 +390,50 @@ local function applyESPToCharacter(p, charModel)
                 local top, tOn = camera:WorldToViewportPoint(cframe.Position + Vector3.new(0, extents.Y / 2 + 0.5, 0))
                 local bottom, bOn = camera:WorldToViewportPoint(cframe.Position - Vector3.new(0, extents.Y / 2 + 0.5, 0))
 
-                if tOn and bOn then
+                -- Box ESP Logic
+                if espBoxEnabled and boxOutline and boxInline and tOn and bOn then
                     local height = math.abs(top.Y - bottom.Y)
                     local width = height * 0.65
                     local topLeft = Vector2.new(pos.X - width / 2, top.Y)
 
-                    -- Box ESP
-                    if espBoxEnabled and boxOutline and boxInline then
-                        boxOutline.Size = Vector2.new(width, height)
-                        boxOutline.Position = topLeft
-                        boxOutline.Visible = true
+                    boxOutline.Size = Vector2.new(width, height)
+                    boxOutline.Position = topLeft
+                    boxOutline.Visible = true
 
-                        boxInline.Size = Vector2.new(width, height)
-                        boxInline.Position = topLeft
-                        boxInline.Visible = true
-                    elseif boxOutline and boxInline then
-                        boxOutline.Visible = false
-                        boxInline.Visible = false
-                    end
-
-                    -- Name & Distance ESP (วางไว้ขอบบนสุดของ Box ESP)
-                    if espNameEnabled and nameText then
-                        local myChar = localPlayer.Character
-                        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-                        local distance = myHRP and math.floor((hrpTarget.Position - myHRP.Position).Magnitude) or 0
-                        
-                        nameText.Text = string.format("%s [%s] [%dm]", p.Name, role, distance)
-                        -- ตำแหน่งตัวหนังสือวางไว้อยู่เหนือขอบกล่อง Box ESP ขึ้นไป 20 พิกเซล
-                        nameText.Position = Vector2.new(pos.X, top.Y - 20)
-                        nameText.Visible = true
-                    elseif nameText then
-                        nameText.Visible = false
-                    end
+                    boxInline.Size = Vector2.new(width, height)
+                    boxInline.Position = topLeft
+                    boxInline.Visible = true
+                else
+                    if boxOutline then boxOutline.Visible = false end
+                    if boxInline then boxInline.Visible = false end
                 end
 
-                -- Tracer Line
+                -- Name & Distance ESP Logic
+                if espNameEnabled and nameText and tOn then
+                    local myChar = localPlayer.Character
+                    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                    local distance = myHRP and math.floor((hrpTarget.Position - myHRP.Position).Magnitude) or 0
+
+                    nameText.Text = string.format("%s [%dm]", p.Name, distance)
+                    nameText.Position = Vector2.new(pos.X, top.Y - 18)
+                    nameText.Visible = true
+                else
+                    if nameText then nameText.Visible = false end
+                end
+
+                -- Tracer ESP Logic
                 if espTracerEnabled and tracer then
                     tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
                     tracer.To = Vector2.new(pos.X, pos.Y)
                     tracer.Visible = true
-                elseif tracer then
-                    tracer.Visible = false
+                else
+                    if tracer then tracer.Visible = false end
                 end
             else
                 if boxOutline then boxOutline.Visible = false end
                 if boxInline then boxInline.Visible = false end
-                if tracer then tracer.Visible = false end
                 if nameText then nameText.Visible = false end
+                if tracer then tracer.Visible = false end
             end
         end
     end)
@@ -335,8 +442,8 @@ local function applyESPToCharacter(p, charModel)
         highlight = highlight,
         boxOutline = boxOutline,
         boxInline = boxInline,
-        tracer = tracer,
         nameText = nameText,
+        tracer = tracer,
         connection = conn
     }
 end
@@ -618,41 +725,7 @@ rs.RenderStepped:Connect(function()
     end
 end)
 
--- ==================== UI LOAD ====================
-local success, WindUI = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-end)
-
-if not success or not WindUI then
-    warn("❌ Failed to load WindUI Library")
-    return
-end
-
-local Window = WindUI:CreateWindow({
-    Title = "BlackCrown-X",
-    Icon = "door-open",
-    Author = "by wdashsuicnsc and timxq_n.",
-    OpenButton = {
-        Title = "Open UI",
-        Icon = "monitor",
-        CornerRadius = UDim.new(0, 16),
-        StrokeThickness = 2,
-        Color = ColorSequence.new(Color3.fromHex("FF0F7B"), Color3.fromHex("F89B29")),
-        OnlyMobile = false,
-        Enabled = true,
-        Draggable = true
-    }
-})
-
-local MainTab = Window:Tab({ Title = "Main", Icon = "bird", Locked = false })
-local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = false })
-local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
-local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
-local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
-
--- Main Tab UI
-
--- Aimbot Tab UI
+-- ==================== AIMBOT TAB UI ====================
 local AimbotSection = AimbotTab:Section({ Title = "Aimbot Core", Icon = "target" })
 AimbotSection:Toggle({
     Title = "Enable Aimbot",
@@ -713,11 +786,11 @@ FOVSection:Colorpicker({
     Callback = function(color) fovColor = color end
 })
 
--- ESP Tab UI
+-- ==================== ESP TAB UI ====================
 local ESPSettingsSection = ESPTab:Section({ Title = "Visual Toggles", Icon = "eye" })
 ESPSettingsSection:Toggle({
     Title = "Enable Name & Distance",
-    Desc = "แสดงชื่อและระยะทางบนหัวกล่อง Box ESP",
+    Desc = "แสดงชื่อและระยะทางบนหัวผู้เล่น",
     Default = false,
     Callback = function(state) espNameEnabled = state end
 })
@@ -743,26 +816,12 @@ ESPSettingsSection:Toggle({
     Callback = function(state) espHighlightEnabled = state end
 })
 
-local ESPColorSection = ESPTab:Section({ Title = "Role Colors Customization", Icon = "palette" })
+local ESPColorSection = ESPTab:Section({ Title = "Color Customization", Icon = "palette" })
 ESPColorSection:Colorpicker({
-    Title = "Murderer Color",
-    Desc = "เลือกสีสำหรับ ESP ของ ฆาตกร (Murderer)",
+    Title = "ESP Color",
+    Desc = "เลือกสีสำหรับ ESP ทั้งหมด",
     Default = Color3.fromRGB(255, 0, 0),
-    Callback = function(color) murdererColor = color end
-})
-
-ESPColorSection:Colorpicker({
-    Title = "Sheriff Color",
-    Desc = "เลือกสีสำหรับ ESP ของ นายอำเภอ (Sheriff)",
-    Default = Color3.fromRGB(0, 120, 255),
-    Callback = function(color) sheriffColor = color end
-})
-
-ESPColorSection:Colorpicker({
-    Title = "Innocent Color",
-    Desc = "เลือกสีสำหรับ ESP ของ ประชาชนทั่วไป (Innocent)",
-    Default = Color3.fromRGB(0, 255, 0),
-    Callback = function(color) innocentColor = color end
+    Callback = function(color) espColor = color end
 })
 
 local ObjectSearchSection = ESPTab:Section({ Title = "Item / Object Search ESP", Icon = "search" })
@@ -822,11 +881,9 @@ ObjectSearchSection:Colorpicker({
     end
 })
 
--- Teleport Tab UI
+-- ==================== TELEPORT TAB UI ====================
 local TPSection = TPTab:Section({ Title = "Player Teleportation", Icon = "navigation" })
-
-local tpPlayerDropdown
-tpPlayerDropdown = TPSection:Dropdown({
+local tpPlayerDropdown = TPSection:Dropdown({
     Title = "Select Target Player",
     Desc = "เลือกผู้เล่นที่ต้องการวาร์ปไปหาทันที",
     Values = getPlayerList(),
@@ -839,10 +896,14 @@ TPSection:Button({
     Desc = "อัปเดตรายชื่อผู้เล่นล่าสุด",
     Callback = function()
         local updatedList = getPlayerList()
-        if tpPlayerDropdown and tpPlayerDropdown.SetValues then
-            tpPlayerDropdown:SetValues(updatedList)
-        elseif tpPlayerDropdown and tpPlayerDropdown.Refresh then
-            tpPlayerDropdown:Refresh(updatedList, true)
+        if tpPlayerDropdown then
+            if typeof(tpPlayerDropdown.SetValues) == "function" then
+                tpPlayerDropdown:SetValues(updatedList)
+            elseif typeof(tpPlayerDropdown.Refresh) == "function" then
+                tpPlayerDropdown:Refresh(updatedList, true)
+            elseif tpPlayerDropdown.Values then
+                tpPlayerDropdown.Values = updatedList
+            end
         end
     end
 })
@@ -962,21 +1023,18 @@ TrackingSection:Toggle({
 
                         local finalCF
                         if isAutoLooking then
-                            -- คำนวณจุดมองให้อยู่ในแนวราบ (ตัดแกน Y ออกเฉพาะตอนคำนวณการหมุน)
-                            -- เพื่อให้ตัวละคร "หันหน้าไปหาเป้าหมาย" โดยที่ตัวยังตั้งตรง ไม่ลอยเอียง 45 องศา
-                            local lookAtHorizontal = Vector3.new(targetHRP.Position.X, targetPos.Y, targetHRP.Position.Z)
-                            
-                            -- ป้องกัน Error กรณีตัวละครอยู่ตรงหัวเป้าหมายพอดีเป๊ะ
-                            if (lookAtHorizontal - targetPos).Magnitude > 0.001 then
-                                finalCF = CFrame.lookAt(targetPos, lookAtHorizontal)
-                            else
-                                finalCF = CFrame.new(targetPos)
-                            end
+                            startSmoothFacing(
+                                function() return targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") end,
+                                function()
+                                    local c = localPlayer.Character
+                                    return c and c:FindFirstChild("HumanoidRootPart")
+                                end
+                            )
+                            finalCF = CFrame.new(targetPos) -- หมุนไม่ต้องใส่ตรงนี้แล้ว ให้ faceConnection คุมแทน
                         else
-                            -- ปิด Auto Look: หันหน้าทิศเดียวกับเป้าหมายแบบปกติ
+                            stopFacing()
                             finalCF = CFrame.new(targetPos) * (targetHRP.CFrame - targetHRP.CFrame.Position)
                         end
-
                         updatePlatform(targetPos)
                         applyBodyVelocity(currentHRP, targetPos)
 
@@ -992,8 +1050,7 @@ TrackingSection:Toggle({
         end
     end
 })
-
--- Misc Tab UI
+-- ==================== MISC TAB UI ====================
 local SpeedSection = MiscTab:Section({ Title = "Speed Controls", Icon = "gauge" })
 SpeedSection:Input({
     Title = "Custom Speed Input",
@@ -1034,6 +1091,114 @@ SpeedSection:Button({
                 speedConnection = nil
             end
             hum.WalkSpeed = defaultSpeed
+        end
+    end
+})
+
+local EmoteSection = MiscTab:Section({ Title = "Emote & Animation Copier", Icon = "smile" })
+
+-- 1. ระบบ Copy Emote จากผู้เล่น
+local emotePlayerDropdown = EmoteSection:Dropdown({
+    Title = "Select Target Player",
+    Desc = "เลือกผู้เล่นที่ต้องการคัดลอกท่าทาง (Emote)",
+    Values = getPlayerList(),
+    Value = "",
+    Callback = function(v)
+        emoteTargetPlayerName = v
+    end
+})
+
+EmoteSection:Button({
+    Title = "Refresh Player List",
+    Desc = "อัปเดตรายชื่อผู้เล่นล่าสุด",
+    Callback = function()
+        local updatedList = getPlayerList()
+        if emotePlayerDropdown then
+            if typeof(emotePlayerDropdown.SetValues) == "function" then
+                emotePlayerDropdown:SetValues(updatedList)
+            elseif typeof(emotePlayerDropdown.Refresh) == "function" then
+                emotePlayerDropdown:Refresh(updatedList, true)
+            elseif emotePlayerDropdown.Values then
+                emotePlayerDropdown.Values = updatedList
+            end
+        end
+    end
+})
+
+EmoteSection:Toggle({
+    Title = "Copy Player Emote & Movement",
+    Desc = "ก็อปปี้ท่าทาง/Emote/สคริปต์ดัดท่า ของผู้เล่นทันทีแบบ Real-time",
+    Default = false,
+    Callback = function(state)
+        isCopyingPlayerEmote = state
+
+        if not state then
+            stopMirroring()
+            stopCustomEmotes()
+        else
+            if emoteTargetPlayerName ~= "" then
+                stopCustomEmotes()
+                startMirroringTarget(emoteTargetPlayerName)
+            end
+        end
+    end
+})
+
+local isCopyingEmoteId = false
+
+EmoteSection:Toggle({
+    Title = "Copy Player Emote",
+    Desc = "เปิด/ปิด การลอกเลียนแบบท่าทางของผู้เล่นที่เลือกทันที",
+    Default = false,
+    Callback = function(state)
+        isCopyingEmoteId = state
+
+        if not state then
+            stopCustomEmotes()
+        else
+            task.spawn(function()
+                local lastAnimId = ""
+                while isCopyingEmoteId do
+                    local targetPlayer = players:FindFirstChild(emoteTargetPlayerName)
+                    if targetPlayer and targetPlayer.Character then
+                        local targetHum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        local currentAnimId = getActiveAnimationId(targetHum)
+
+                        if currentAnimId and currentAnimId ~= lastAnimId then
+                            lastAnimId = currentAnimId
+                            stopCustomEmotes()
+                            customTrack = playEmoteById(currentAnimId)
+                        end
+                    end
+                    task.wait(0.3)
+                end
+            end)
+        end
+    end
+})
+
+-- 2. ระบบ Play Emote จาก Animation ID
+EmoteSection:Input({
+    Title = "Custom Emote / Anim ID",
+    Desc = "ใส่ ID ของ Emote หรือ Animation ที่ต้องการเล่น",
+    Value = "",
+    Placeholder = "ใส่หมายเลข ID เช่น 369675713...",
+    Callback = function(val)
+        customEmoteIdInput = val
+    end
+})
+
+EmoteSection:Toggle({
+    Title = "Play Custom ID Emote",
+    Desc = "เปิดเพื่อเล่น Emote จาก ID / ปิดเพื่อหยุดเล่น",
+    Default = false,
+    Callback = function(state)
+        isPlayingCustomEmote = state
+        if state then
+            stopCustomEmotes()
+            customTrack = playEmoteById(customEmoteIdInput)
+        else
+            stopCustomEmotes()
         end
     end
 })
@@ -1091,5 +1256,4 @@ ToolsSection:Button({
     end
 })
 
--- ตั้งค่าปุ่มกดเปิด-ปิดเมนู UI (ปุ่ม Alt ซ้าย)
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
