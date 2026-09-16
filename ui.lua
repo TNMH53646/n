@@ -329,10 +329,29 @@ local espNameEnabled = false
 local espBoxEnabled = false
 local espTracerEnabled = false
 local espHighlightEnabled = false
+local espHealthBarEnabled = true
+local espHealthTextEnabled = true -- เปิดการแสดงตัวเลข % HP
+
 local espColor = Color3.fromRGB(255, 0, 0)
+local friendColor = Color3.fromRGB(0, 255, 128) -- สีเพื่อน (ตั้งค่าผ่าน UI ได้)
+
 local espObjects = {}
+local friendCache = {}
 
 local hasDrawingAPI = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+
+-- ฟังก์ชันเช็กว่าผู้เล่นคนนั้นเป็นเพื่อนเราหรือไม่
+local function checkIsFriend(p)
+    if friendCache[p.UserId] ~= nil then
+        return friendCache[p.UserId]
+    end
+    local isFriend = false
+    pcall(function()
+        isFriend = localPlayer:IsFriendsWith(p.UserId)
+    end)
+    friendCache[p.UserId] = isFriend
+    return isFriend
+end
 
 local function removeESP(p)
     if espObjects[p] then
@@ -340,6 +359,10 @@ local function removeESP(p)
         if espObjects[p].highlight then espObjects[p].highlight:Destroy() end
         if espObjects[p].boxOutline then pcall(function() espObjects[p].boxOutline:Remove() end) end
         if espObjects[p].boxInline then pcall(function() espObjects[p].boxInline:Remove() end) end
+        if espObjects[p].healthBarOutline then pcall(function() espObjects[p].healthBarOutline:Remove() end) end
+        if espObjects[p].healthBarBG then pcall(function() espObjects[p].healthBarBG:Remove() end) end
+        if espObjects[p].healthBarFill then pcall(function() espObjects[p].healthBarFill:Remove() end) end
+        if espObjects[p].healthText then pcall(function() espObjects[p].healthText:Remove() end) end
         if espObjects[p].nameText then pcall(function() espObjects[p].nameText:Remove() end) end
         if espObjects[p].tracer then pcall(function() espObjects[p].tracer:Remove() end) end
         espObjects[p] = nil
@@ -354,18 +377,22 @@ local function applyESPToCharacter(p, charModel)
     local humanoidTarget = charModel:WaitForChild("Humanoid", 5)
     if not hrpTarget or not humanoidTarget then return end
 
+    local isFriend = checkIsFriend(p)
+    local activeColor = isFriend and friendColor or espColor
+
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Highlight"
-    highlight.FillColor = espColor
+    highlight.FillColor = activeColor
     highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 0
     highlight.Enabled = espHighlightEnabled
     highlight.Parent = charModel
 
-    local boxOutline, boxInline, nameText, tracer
+    local boxOutline, boxInline, healthBarOutline, healthBarBG, healthBarFill, healthText, nameText, tracer
     if hasDrawingAPI then
         pcall(function()
+            -- Box ESP
             boxOutline = Drawing.new("Square")
             boxOutline.Visible = false
             boxOutline.Color = Color3.new(0, 0, 0)
@@ -373,74 +400,167 @@ local function applyESPToCharacter(p, charModel)
 
             boxInline = Drawing.new("Square")
             boxInline.Visible = false
-            boxInline.Color = espColor
+            boxInline.Color = activeColor
             boxInline.Thickness = 1
 
+            -- Health Bar Elements
+            healthBarOutline = Drawing.new("Square")
+            healthBarOutline.Visible = false
+            healthBarOutline.Color = Color3.new(0, 0, 0)
+            healthBarOutline.Thickness = 1
+            healthBarOutline.Filled = false
+
+            healthBarBG = Drawing.new("Square")
+            healthBarBG.Visible = false
+            healthBarBG.Color = Color3.fromRGB(30, 30, 30)
+            healthBarBG.Filled = true
+
+            healthBarFill = Drawing.new("Square")
+            healthBarFill.Visible = false
+            healthBarFill.Color = Color3.fromRGB(0, 255, 0)
+            healthBarFill.Filled = true
+
+            -- Health Text (%)
+            healthText = Drawing.new("Text")
+            healthText.Visible = false
+            healthText.Color = Color3.fromRGB(255, 255, 255)
+            healthText.Size = 12
+            healthText.Center = false
+            healthText.Outline = true
+
+            -- Name & Tracer
             nameText = Drawing.new("Text")
             nameText.Visible = false
-            nameText.Color = espColor
+            nameText.Color = activeColor
             nameText.Size = 14
             nameText.Center = true
             nameText.Outline = true
 
             tracer = Drawing.new("Line")
             tracer.Visible = false
-            tracer.Color = espColor
+            tracer.Color = activeColor
             tracer.Thickness = 1.5
         end)
     end
 
     local conn = rs.RenderStepped:Connect(function()
         if not charModel.Parent or humanoidTarget.Health <= 0 then
-            removeESP(p)
+            if highlight then highlight.Enabled = false end
+            if boxOutline then boxOutline.Visible = false end
+            if boxInline then boxInline.Visible = false end
+            if healthBarOutline then healthBarOutline.Visible = false end
+            if healthBarBG then healthBarBG.Visible = false end
+            if healthBarFill then healthBarFill.Visible = false end
+            if healthText then healthText.Visible = false end
+            if nameText then nameText.Visible = false end
+            if tracer then tracer.Visible = false end
             return
         end
 
-        highlight.FillColor = espColor
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        if boxInline then boxInline.Color = espColor end
-        if nameText then nameText.Color = espColor end
-        if tracer then tracer.Color = espColor end
+        local currentColor = checkIsFriend(p) and friendColor or espColor
 
+        highlight.FillColor = currentColor
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         highlight.Enabled = espHighlightEnabled
 
+        if boxInline then boxInline.Color = currentColor end
+        if nameText then nameText.Color = currentColor end
+        if tracer then tracer.Color = currentColor end
+
         if hasDrawingAPI then
+            -- ค้นหาจุดกึ่งกลางของเป้าหมาย
             local pos, onScreen = camera:WorldToViewportPoint(hrpTarget.Position)
             if onScreen then
-                local extents = charModel:GetExtentsSize()
-                local cframe = charModel:GetPivot()
-                local top, tOn = camera:WorldToViewportPoint(cframe.Position + Vector3.new(0, extents.Y / 2 + 0.5, 0))
-                local bottom, bOn = camera:WorldToViewportPoint(cframe.Position - Vector3.new(0, extents.Y / 2 + 0.5, 0))
+                -- FIX: สร้างจุดสมมติด้านบนและล่างจาก HRP โดยไม่อิงกับขนาดกล่องหรือการเอียงของโมเดล
+                -- วิธีนี้ทำให้กล่องไม่บิดเบี้ยวตาม Shift Lock และป้องกันบั๊กกล่องยักษ์เวลาไอเทมหลุด
+                local topPos = hrpTarget.Position + Vector3.new(0, 2.5, 0)
+                local bottomPos = hrpTarget.Position - Vector3.new(0, 3, 0)
+                
+                local top, tOn = camera:WorldToViewportPoint(topPos)
+                local bottom, bOn = camera:WorldToViewportPoint(bottomPos)
 
-                -- Box ESP Logic
-                if espBoxEnabled and boxOutline and boxInline and tOn and bOn then
-                    local height = math.abs(top.Y - bottom.Y)
-                    local width = height * 0.65
-                    local topLeft = Vector2.new(pos.X - width / 2, top.Y)
+                if tOn and bOn then
+                    local boxHeight = math.abs(bottom.Y - top.Y)
+                    local boxWidth = boxHeight * 0.65 -- อัตราส่วนมาตรฐานตัวละคร Roblox
+                    
+                    local minX = pos.X - (boxWidth / 2)
+                    local minY = top.Y
 
-                    boxOutline.Size = Vector2.new(width, height)
-                    boxOutline.Position = topLeft
-                    boxOutline.Visible = true
+                    -- Box ESP Logic
+                    if espBoxEnabled and boxOutline and boxInline then
+                        boxOutline.Size = Vector2.new(boxWidth, boxHeight)
+                        boxOutline.Position = Vector2.new(minX, minY)
+                        boxOutline.Visible = true
 
-                    boxInline.Size = Vector2.new(width, height)
-                    boxInline.Position = topLeft
-                    boxInline.Visible = true
-                else
-                    if boxOutline then boxOutline.Visible = false end
-                    if boxInline then boxInline.Visible = false end
-                end
+                        boxInline.Size = Vector2.new(boxWidth, boxHeight)
+                        boxInline.Position = Vector2.new(minX, minY)
+                        boxInline.Visible = true
+                    else
+                        if boxOutline then boxOutline.Visible = false end
+                        if boxInline then boxInline.Visible = false end
+                    end
 
-                -- Name & Distance ESP Logic
-                if espNameEnabled and nameText and tOn then
-                    local myChar = localPlayer.Character
-                    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-                    local distance = myHRP and math.floor((hrpTarget.Position - myHRP.Position).Magnitude) or 0
+                    -- Health Bar & Text ESP Logic
+                    if espHealthBarEnabled and healthBarOutline and healthBarBG and healthBarFill then
+                        local healthPercent = math.clamp(humanoidTarget.Health / humanoidTarget.MaxHealth, 0, 1)
+                        local barWidth = 3
+                        local barOffset = 6
+                        local barX = minX - barOffset - barWidth
 
-                    nameText.Text = string.format("%s [%dm]", p.Name, distance)
-                    nameText.Position = Vector2.new(pos.X, top.Y - 18)
-                    nameText.Visible = true
-                else
-                    if nameText then nameText.Visible = false end
+                        local barColor = Color3.fromRGB(0, 255, 0)
+                        if healthPercent <= 0.2 then
+                            barColor = Color3.fromRGB(255, 0, 0)
+                        elseif healthPercent <= 0.5 then
+                            barColor = Color3.fromRGB(255, 200, 0)
+                        end
+
+                        local fillHeight = math.floor(boxHeight * healthPercent)
+                        local fillY = minY + (boxHeight - fillHeight)
+
+                        -- BG
+                        healthBarBG.Size = Vector2.new(barWidth, boxHeight)
+                        healthBarBG.Position = Vector2.new(barX, minY)
+                        healthBarBG.Visible = true
+
+                        -- Fill
+                        healthBarFill.Size = Vector2.new(barWidth, fillHeight)
+                        healthBarFill.Position = Vector2.new(barX, fillY)
+                        healthBarFill.Color = barColor
+                        healthBarFill.Visible = true
+
+                        -- Outline
+                        healthBarOutline.Size = Vector2.new(barWidth + 2, boxHeight + 2)
+                        healthBarOutline.Position = Vector2.new(barX - 1, minY - 1)
+                        healthBarOutline.Visible = true
+
+                        -- Health Text (%)
+                        if espHealthTextEnabled and healthText then
+                            healthText.Text = string.format("%d%%", math.floor(healthPercent * 100))
+                            healthText.Position = Vector2.new(barX - 25, fillY - 4)
+                            healthText.Color = barColor
+                            healthText.Visible = true
+                        else
+                            if healthText then healthText.Visible = false end
+                        end
+                    else
+                        if healthBarOutline then healthBarOutline.Visible = false end
+                        if healthBarBG then healthBarBG.Visible = false end
+                        if healthBarFill then healthBarFill.Visible = false end
+                        if healthText then healthText.Visible = false end
+                    end
+
+                    -- Name & Distance ESP Logic
+                    if espNameEnabled and nameText then
+                        local myChar = localPlayer.Character
+                        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                        local distance = myHRP and math.floor((hrpTarget.Position - myHRP.Position).Magnitude) or 0
+
+                        nameText.Text = string.format("%s [%dm]", p.Name, distance)
+                        nameText.Position = Vector2.new(pos.X, minY - 18)
+                        nameText.Visible = true
+                    else
+                        if nameText then nameText.Visible = false end
+                    end
                 end
 
                 -- Tracer ESP Logic
@@ -454,6 +574,10 @@ local function applyESPToCharacter(p, charModel)
             else
                 if boxOutline then boxOutline.Visible = false end
                 if boxInline then boxInline.Visible = false end
+                if healthBarOutline then healthBarOutline.Visible = false end
+                if healthBarBG then healthBarBG.Visible = false end
+                if healthBarFill then healthBarFill.Visible = false end
+                if healthText then healthText.Visible = false end
                 if nameText then nameText.Visible = false end
                 if tracer then tracer.Visible = false end
             end
@@ -464,6 +588,10 @@ local function applyESPToCharacter(p, charModel)
         highlight = highlight,
         boxOutline = boxOutline,
         boxInline = boxInline,
+        healthBarOutline = healthBarOutline,
+        healthBarBG = healthBarBG,
+        healthBarFill = healthBarFill,
+        healthText = healthText,
         nameText = nameText,
         tracer = tracer,
         connection = conn
@@ -480,13 +608,17 @@ end
 players.PlayerAdded:Connect(function(p)
     p.CharacterAdded:Connect(function(c) applyESPToCharacter(p, c) end)
 end)
-players.PlayerRemoving:Connect(removeESP)
+
+players.PlayerRemoving:Connect(function(p)
+    friendCache[p.UserId] = nil
+    removeESP(p)
+end)
 
 -- ==================== OBJECT SEARCH ESP SYSTEM ====================
 local searchTargetText = ""
 local exactMatchEnabled = false
 local partialMatchEnabled = false
-local objectEspColor = Color3.fromRGB(255, 255, 0) -- สีเหลือง (ปรับเปลี่ยนได้)
+local objectEspColor = Color3.fromRGB(255, 255, 0)
 
 local searchedObjects = {}
 
@@ -563,7 +695,6 @@ local function updateObjectESP()
 
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") or obj:IsA("BasePart") then
-            -- ข้ามตัวละครของผู้เล่นเอง
             if localPlayer.Character and obj:IsDescendantOf(localPlayer.Character) then
                 continue
             end
@@ -572,12 +703,10 @@ local function updateObjectESP()
             local isMatch = false
 
             if exactMatchEnabled then
-                -- ตรวจสอบชื่อแบบตรงเป๊ะ (Exact Match)
                 if objName == searchTargetText then
                     isMatch = true
                 end
             elseif partialMatchEnabled then
-                -- ตรวจสอบว่ามีคำนี้ผสมอยู่หรือไม่ (Partial Match)
                 if string.find(string.lower(objName), targetLower, 1, true) then
                     isMatch = true
                 end
@@ -590,7 +719,6 @@ local function updateObjectESP()
     end
 end
 
--- RenderStepped สำหรับอัปเดตตำแหน่ง Drawing API ของ Object ESP
 rs.RenderStepped:Connect(function()
     if not (exactMatchEnabled or partialMatchEnabled) then return end
 
@@ -612,7 +740,6 @@ rs.RenderStepped:Connect(function()
                 local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
                 local distance = myHRP and math.floor((data.part.Position - myHRP.Position).Magnitude) or 0
 
-                -- Box Calculation
                 local extents = obj:IsA("Model") and obj:GetExtentsSize() or data.part.Size
                 local top, tOn = camera:WorldToViewportPoint(data.part.Position + Vector3.new(0, extents.Y / 2, 0))
                 local bottom, bOn = camera:WorldToViewportPoint(data.part.Position - Vector3.new(0, extents.Y / 2, 0))
@@ -631,14 +758,12 @@ rs.RenderStepped:Connect(function()
                     data.boxInline.Visible = true
                 end
 
-                -- Name Text
                 if data.nameText then
                     data.nameText.Text = string.format("%s [%dm]", obj.Name, distance)
                     data.nameText.Position = Vector2.new(pos.X, top.Y - 18)
                     data.nameText.Visible = true
                 end
 
-                -- Tracer Line
                 if data.tracer then
                     data.tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
                     data.tracer.To = Vector2.new(pos.X, pos.Y)
@@ -825,6 +950,20 @@ ESPSettingsSection:Toggle({
 })
 
 ESPSettingsSection:Toggle({
+    Title = "Enable Health Bar",
+    Desc = "แสดงแถบเลือดข้างกล่อง ESP",
+    Default = true,
+    Callback = function(state) espHealthBarEnabled = state end
+})
+
+ESPSettingsSection:Toggle({
+    Title = "Enable Health Percent Text",
+    Desc = "แสดงตัวเลข % เลือดข้างแถบเลือด",
+    Default = true,
+    Callback = function(state) espHealthTextEnabled = state end
+})
+
+ESPSettingsSection:Toggle({
     Title = "Enable Tracer Line",
     Desc = "แสดงเส้นลากจากล่างหน้าจอไปยังเป้าหมาย",
     Default = false,
@@ -840,10 +979,17 @@ ESPSettingsSection:Toggle({
 
 local ESPColorSection = ESPTab:Section({ Title = "Color Customization", Icon = "palette" })
 ESPColorSection:Colorpicker({
-    Title = "ESP Color",
-    Desc = "เลือกสีสำหรับ ESP ทั้งหมด",
+    Title = "Enemy / Default Color",
+    Desc = "เลือกสี ESP สำหรับผู้เล่นทั่วไป/ศัตรู",
     Default = Color3.fromRGB(255, 0, 0),
     Callback = function(color) espColor = color end
+})
+
+ESPColorSection:Colorpicker({
+    Title = "Friend Color",
+    Desc = "เลือกสี ESP สำหรับเพื่อนในเกม Roblox",
+    Default = Color3.fromRGB(0, 255, 128),
+    Callback = function(color) friendColor = color end
 })
 
 local ObjectSearchSection = ESPTab:Section({ Title = "Item / Object Search ESP", Icon = "search" })
