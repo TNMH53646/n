@@ -364,6 +364,7 @@ local function removeESP(p)
         if espObjects[p].healthBarFill then pcall(function() espObjects[p].healthBarFill:Remove() end) end
         if espObjects[p].healthText then pcall(function() espObjects[p].healthText:Remove() end) end
         if espObjects[p].nameText then pcall(function() espObjects[p].nameText:Remove() end) end
+        if espObjects[p].micText then pcall(function() espObjects[p].micText:Remove() end) end
         if espObjects[p].tracer then pcall(function() espObjects[p].tracer:Remove() end) end
         espObjects[p] = nil
     end
@@ -389,10 +390,10 @@ local function applyESPToCharacter(p, charModel)
     highlight.Enabled = espHighlightEnabled
     highlight.Parent = charModel
 
-    local boxOutline, boxInline, healthBarOutline, healthBarBG, healthBarFill, healthText, nameText, tracer
+    local boxOutline, boxInline, healthBarOutline, healthBarBG, healthBarFill, healthText, nameText, micText, tracer
     if hasDrawingAPI then
         pcall(function()
-            -- Box ESP
+            -- Box
             boxOutline = Drawing.new("Square")
             boxOutline.Visible = false
             boxOutline.Color = Color3.new(0, 0, 0)
@@ -403,7 +404,7 @@ local function applyESPToCharacter(p, charModel)
             boxInline.Color = activeColor
             boxInline.Thickness = 1
 
-            -- Health Bar Elements
+            -- Health Bar
             healthBarOutline = Drawing.new("Square")
             healthBarOutline.Visible = false
             healthBarOutline.Color = Color3.new(0, 0, 0)
@@ -420,7 +421,7 @@ local function applyESPToCharacter(p, charModel)
             healthBarFill.Color = Color3.fromRGB(0, 255, 0)
             healthBarFill.Filled = true
 
-            -- Health Text (%)
+            -- Health Text
             healthText = Drawing.new("Text")
             healthText.Visible = false
             healthText.Color = Color3.fromRGB(255, 255, 255)
@@ -428,7 +429,7 @@ local function applyESPToCharacter(p, charModel)
             healthText.Center = false
             healthText.Outline = true
 
-            -- Name & Tracer
+            -- Name
             nameText = Drawing.new("Text")
             nameText.Visible = false
             nameText.Color = activeColor
@@ -436,6 +437,15 @@ local function applyESPToCharacter(p, charModel)
             nameText.Center = true
             nameText.Outline = true
 
+            -- Mic Indicator
+            micText = Drawing.new("Text")
+            micText.Visible = false
+            micText.Color = Color3.fromRGB(255, 255, 255)
+            micText.Size = 16
+            micText.Center = false
+            micText.Outline = true
+
+            -- Tracer
             tracer = Drawing.new("Line")
             tracer.Visible = false
             tracer.Color = activeColor
@@ -453,14 +463,13 @@ local function applyESPToCharacter(p, charModel)
             if healthBarFill then healthBarFill.Visible = false end
             if healthText then healthText.Visible = false end
             if nameText then nameText.Visible = false end
+            if micText then micText.Visible = false end
             if tracer then tracer.Visible = false end
             return
         end
 
         local currentColor = checkIsFriend(p) and friendColor or espColor
-
         highlight.FillColor = currentColor
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         highlight.Enabled = espHighlightEnabled
 
         if boxInline then boxInline.Color = currentColor end
@@ -468,11 +477,8 @@ local function applyESPToCharacter(p, charModel)
         if tracer then tracer.Color = currentColor end
 
         if hasDrawingAPI then
-            -- ค้นหาจุดกึ่งกลางของเป้าหมาย
             local pos, onScreen = camera:WorldToViewportPoint(hrpTarget.Position)
             if onScreen then
-                -- FIX: สร้างจุดสมมติด้านบนและล่างจาก HRP โดยไม่อิงกับขนาดกล่องหรือการเอียงของโมเดล
-                -- วิธีนี้ทำให้กล่องไม่บิดเบี้ยวตาม Shift Lock และป้องกันบั๊กกล่องยักษ์เวลาไอเทมหลุด
                 local topPos = hrpTarget.Position + Vector3.new(0, 2.5, 0)
                 local bottomPos = hrpTarget.Position - Vector3.new(0, 3, 0)
                 
@@ -481,12 +487,12 @@ local function applyESPToCharacter(p, charModel)
 
                 if tOn and bOn then
                     local boxHeight = math.abs(bottom.Y - top.Y)
-                    local boxWidth = boxHeight * 0.65 -- อัตราส่วนมาตรฐานตัวละคร Roblox
+                    local boxWidth = boxHeight * 0.65
                     
                     local minX = pos.X - (boxWidth / 2)
                     local minY = top.Y
 
-                    -- Box ESP Logic
+                    -- Box ESP
                     if espBoxEnabled and boxOutline and boxInline then
                         boxOutline.Size = Vector2.new(boxWidth, boxHeight)
                         boxOutline.Position = Vector2.new(minX, minY)
@@ -500,7 +506,7 @@ local function applyESPToCharacter(p, charModel)
                         if boxInline then boxInline.Visible = false end
                     end
 
-                    -- Health Bar & Text ESP Logic
+                    -- Health ESP
                     if espHealthBarEnabled and healthBarOutline and healthBarBG and healthBarFill then
                         local healthPercent = math.clamp(humanoidTarget.Health / humanoidTarget.MaxHealth, 0, 1)
                         local barWidth = 3
@@ -517,23 +523,19 @@ local function applyESPToCharacter(p, charModel)
                         local fillHeight = math.floor(boxHeight * healthPercent)
                         local fillY = minY + (boxHeight - fillHeight)
 
-                        -- BG
                         healthBarBG.Size = Vector2.new(barWidth, boxHeight)
                         healthBarBG.Position = Vector2.new(barX, minY)
                         healthBarBG.Visible = true
 
-                        -- Fill
                         healthBarFill.Size = Vector2.new(barWidth, fillHeight)
                         healthBarFill.Position = Vector2.new(barX, fillY)
                         healthBarFill.Color = barColor
                         healthBarFill.Visible = true
 
-                        -- Outline
                         healthBarOutline.Size = Vector2.new(barWidth + 2, boxHeight + 2)
                         healthBarOutline.Position = Vector2.new(barX - 1, minY - 1)
                         healthBarOutline.Visible = true
 
-                        -- Health Text (%)
                         if espHealthTextEnabled and healthText then
                             healthText.Text = string.format("%d%%", math.floor(healthPercent * 100))
                             healthText.Position = Vector2.new(barX - 25, fillY - 4)
@@ -549,7 +551,29 @@ local function applyESPToCharacter(p, charModel)
                         if healthText then healthText.Visible = false end
                     end
 
-                    -- Name & Distance ESP Logic
+                    -- Mic Indicator (เช็คการมีอยู่ของระบบเสียงและการพูด)
+                    if espMicEnabled and micText then
+                        -- ค้นหา object เสียงในตัวละคร
+                        local voiceInst = charModel:FindFirstChild("VoiceSource", true) or charModel:FindFirstChildWhichIsA("AudioEmitter", true)
+                        if voiceInst then
+                            local isTalking = false
+                            -- ถ้าระบบใช้ Sound และมีเสียงดังกว่าระดับที่ตั้งไว้แปลว่ากำลังพูด
+                            if voiceInst:IsA("Sound") and voiceInst.PlaybackLoudness > 5 then
+                                isTalking = true
+                            end
+                            
+                            micText.Text = "🎤"
+                            micText.Color = isTalking and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
+                            micText.Position = Vector2.new(minX + boxWidth + 4, minY) -- วางไว้ด้านขวาของกล่อง
+                            micText.Visible = true
+                        else
+                            micText.Visible = false
+                        end
+                    else
+                        if micText then micText.Visible = false end
+                    end
+
+                    -- Name ESP
                     if espNameEnabled and nameText then
                         local myChar = localPlayer.Character
                         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -563,7 +587,7 @@ local function applyESPToCharacter(p, charModel)
                     end
                 end
 
-                -- Tracer ESP Logic
+                -- Tracer ESP
                 if espTracerEnabled and tracer then
                     tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
                     tracer.To = Vector2.new(pos.X, pos.Y)
@@ -579,6 +603,7 @@ local function applyESPToCharacter(p, charModel)
                 if healthBarFill then healthBarFill.Visible = false end
                 if healthText then healthText.Visible = false end
                 if nameText then nameText.Visible = false end
+                if micText then micText.Visible = false end
                 if tracer then tracer.Visible = false end
             end
         end
@@ -593,6 +618,7 @@ local function applyESPToCharacter(p, charModel)
         healthBarFill = healthBarFill,
         healthText = healthText,
         nameText = nameText,
+        micText = micText,
         tracer = tracer,
         connection = conn
     }
@@ -975,6 +1001,13 @@ ESPSettingsSection:Toggle({
     Desc = "แสดงแสงออร่าเรืองแสงครอบตัวผู้เล่น",
     Default = false,
     Callback = function(state) espHighlightEnabled = state end
+})
+
+ESPSettingsSection:Toggle({
+    Title = "Enable Mic Indicator",
+    Desc = "แสดงไอคอนไมค์ข้างกล่อง ESP หากผู้เล่นมีไมค์ (สีเขียว=กำลังพูด)",
+    Default = true,
+    Callback = function(state) espMicEnabled = state end
 })
 
 local ESPColorSection = ESPTab:Section({ Title = "Color Customization", Icon = "palette" })
