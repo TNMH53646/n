@@ -30,8 +30,6 @@ local safeModeLocation = Vector3.new(0, 50, 0)
 
 -- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
 
--- ==================== TWEEN WITH BODYVELOCITY SYSTEM ====================
-
 local tweenDirection = "Behind"
 local tweenDistance = 5
 local isTweeningRelative = false
@@ -39,20 +37,6 @@ local isAutoLooking = false
 local createPlatform = true
 local tempPlatform = nil
 local selectedPlayerName = ""
-
-local players = game:GetService("Players")
-local localPlayer = players.LocalPlayer
-local TweenService = game:GetService("TweenService")
-
-local function getPlayerList()
-    local list = {}
-    for _, p in ipairs(players:GetPlayers()) do
-        if p ~= localPlayer then
-            table.insert(list, p.Name)
-        end
-    end
-    return list
-end
 
 -- คำนวณหาตำแหน่งพุ่งไป (Position เท่านั้น)
 local function getTargetOffsetPosition(targetHRP, direction, distance)
@@ -1090,6 +1074,1123 @@ ToolsSection:Button({
         end
     end
 })
+
+-- ==================== FUNCTIONS FROM FUNCTION.LUA ====================
+
+-- -------------------- COMBAT SYSTEM --------------------
+local p = localPlayer
+local ps = players
+local RunService = game:GetService("RunService")
+local TweenService2 = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Gun client management
+local disabledGunClients = {}
+local gunMonitorConnections = {}
+local magicBulletToolConnection = nil
+local predictionBeam = nil
+local predictionVisualizationConnection = nil
+local predictionMultiplier = 2.5
+local magicBulletEnabled = false
+local autoShootEnabled = false
+local autoKillAllEnabled = false
+local isagbEnabled = false
+local isafEnabled = false
+
+local function getPing()
+    local a = game:GetService('Stats').Network.ServerStatsItem['Data Ping']:GetValue()
+    return a
+end
+
+local function disableGunClient(a)
+    if not a then return end
+    local b = a:FindFirstChild('GunClient')
+    if b and b:IsA('LocalScript') then
+        if b.Enabled then
+            b.Enabled = false
+            disabledGunClients[a] = b
+        end
+    end
+end
+
+local function enableGunClient(a)
+    if not a then return end
+    local b = disabledGunClients[a]
+    if b and b:IsA('LocalScript') then
+        b.Enabled = true
+        disabledGunClients[a] = nil
+    else
+        local c = a:FindFirstChild('GunClient')
+        if c and c:IsA('LocalScript') and not c.Enabled then
+            c.Enabled = true
+        end
+    end
+end
+
+local function createPredictionBeam()
+    if predictionBeam then return predictionBeam end
+    local a, b = game:GetService('Workspace'), Instance.new('Part')
+    b.Name = 'BeamPart0'
+    b.Anchored = true
+    b.CanCollide = false
+    b.Transparency = 1
+    b.Size = Vector3.new(0.1, 0.1, 0.1)
+    b.Parent = a
+    local c = Instance.new('Part')
+    c.Name = 'BeamPart1'
+    c.Anchored = true
+    c.CanCollide = false
+    c.Transparency = 1
+    c.Size = Vector3.new(0.1, 0.1, 0.1)
+    c.Parent = a
+    local d = Instance.new('Attachment')
+    d.Name = 'BeamAttachment0'
+    d.Parent = b
+    local e = Instance.new('Attachment')
+    e.Name = 'BeamAttachment1'
+    e.Parent = c
+    local f = Instance.new('Beam')
+    f.Name = 'PredictionBeam'
+    f.FaceCamera = true
+    f.Width0 = 0.2
+    f.Width1 = 0.2
+    f.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
+    f.Transparency = NumberSequence.new(0.5)
+    f.LightEmission = 1
+    f.LightInfluence = 0
+    f.Attachment0 = d
+    f.Attachment1 = e
+    f.Parent = b
+    predictionBeam = { Beam = f, Attachment0 = d, Attachment1 = e, Part0 = b, Part1 = c }
+    return predictionBeam
+end
+
+local function updatePredictionBeam(a, b)
+    if not predictionBeam then createPredictionBeam() end
+    if predictionBeam.Part0 and predictionBeam.Part1 then
+        predictionBeam.Part0.Position = a
+        predictionBeam.Part1.Position = b
+    end
+end
+
+-- PlayerData / Role tracking (Function.lua style, server-based)
+local PlayerData = game.ReplicatedStorage.Remotes.Extras.GetPlayerData
+local PlayerDataChanged = game.ReplicatedStorage.Remotes.Gameplay.PlayerDataChanged
+local RolesPlrName = {
+    ['Sheriff'] = false,
+    ['Murderer'] = false,
+    ['Innocent'] = false,
+    ['Hero'] = false,
+}
+
+PlayerDataChanged.OnClientEvent:Connect(function(a)
+    for b, c in a do
+        local d = game.Players:FindFirstChild(b)
+        if d then RolesPlrName[c.Role] = d end
+    end
+end)
+
+for a, b in PlayerData:InvokeServer() do
+    local c = game.Players:FindFirstChild(a)
+    if c then RolesPlrName[b.Role] = c end
+end
+
+local function magicBulletShoot(a)
+    if not a then return end
+    local b = RolesPlrName['Murderer']
+    if not b or not b.Character or not b.Character:FindFirstChild('HumanoidRootPart') then return end
+    local c, d = b.Character.HumanoidRootPart, getPing()
+    local e, f = (d / 1000) * predictionMultiplier, c.Velocity
+    local g, h = f.Magnitude, nil
+    if g < 1 then
+        local i = c.CFrame.LookVector * 2
+        h = c.Position + i
+    else
+        local i = 1 + (g / 50)
+        local j = e * i
+        h = c.Position + (f * j)
+    end
+    local i, j = c.Position, c.CFrame.LookVector
+    local k = i - (j * 1)
+    local l, m, n = CFrame.new(k.X, k.Y, k.Z), CFrame.new(h.X, h.Y, h.Z), a:FindFirstChild('Shoot')
+    if n and n:IsA('RemoteEvent') then n:FireServer(l, m) end
+end
+
+local function setupMagicBulletTool(a)
+    if not a or not a:IsA('Tool') then return end
+    if magicBulletToolConnection then
+        magicBulletToolConnection:Disconnect()
+        magicBulletToolConnection = nil
+    end
+    magicBulletToolConnection = a.Activated:Connect(function()
+        if magicBulletEnabled then magicBulletShoot(a) end
+    end)
+end
+
+local function enableMagicBullet()
+    if p.Character then
+        local a = p.Character:FindFirstChild('Gun')
+        if a then disableGunClient(a); setupMagicBulletTool(a) end
+    end
+    if p.Backpack then
+        local a = p.Backpack:FindFirstChild('Gun')
+        if a then disableGunClient(a); setupMagicBulletTool(a) end
+    end
+end
+
+local function stopGunMonitoring()
+    for a, b in pairs(gunMonitorConnections) do
+        if b then b:Disconnect() end
+    end
+    gunMonitorConnections = {}
+end
+
+local function monitorGunAppearance()
+    local a
+    a = p.CharacterAdded:Connect(function(b)
+        if not magicBulletEnabled then return end
+        local c
+        c = b.ChildAdded:Connect(function(d)
+            if d.Name == 'Gun' and d:IsA('Tool') and magicBulletEnabled then
+                task.wait(0.1)
+                disableGunClient(d)
+                setupMagicBulletTool(d)
+            end
+        end)
+        table.insert(gunMonitorConnections, c)
+    end)
+    table.insert(gunMonitorConnections, a)
+    if p.Backpack then
+        local b
+        b = p.Backpack.ChildAdded:Connect(function(c)
+            if c.Name == 'Gun' and c:IsA('Tool') and magicBulletEnabled then
+                task.wait(0.1)
+                disableGunClient(c)
+                setupMagicBulletTool(c)
+            end
+        end)
+        table.insert(gunMonitorConnections, b)
+    end
+end
+
+local function disableMagicBullet()
+    if magicBulletToolConnection then
+        magicBulletToolConnection:Disconnect()
+        magicBulletToolConnection = nil
+    end
+    stopGunMonitoring()
+    for a, b in pairs(disabledGunClients) do enableGunClient(a) end
+    disabledGunClients = {}
+    monitorGunAppearance()
+end
+
+monitorGunAppearance()
+
+local function autoShootMurderer()
+    local a = nil
+    if p.Character and p.Character:FindFirstChild('Gun') then
+        a = p.Character.Gun
+    elseif p.Backpack and p.Backpack:FindFirstChild('Gun') then
+        a = p.Backpack.Gun
+        a.Parent = p.Character
+        task.wait(0.05)
+    end
+    if not a or a.Parent ~= p.Character then return end
+    local b = RolesPlrName['Murderer']
+    if not b or not b.Character or not b.Character:FindFirstChild('HumanoidRootPart') then return end
+    local c, d = b.Character.HumanoidRootPart, getPing()
+    local e, f = (d / 1000) * predictionMultiplier, c.Velocity
+    local g, h = f.Magnitude, nil
+    if g < 1 then
+        local i = c.CFrame.LookVector * 2
+        h = c.Position + i
+    else
+        local i = 1 + (g / 50)
+        local j = e * i
+        h = c.Position + (f * j)
+    end
+    local i, j = c.Position, c.CFrame.LookVector
+    local k = i - (j * 1)
+    local l, m, n = CFrame.new(k.X, k.Y, k.Z), CFrame.new(h.X, h.Y, h.Z), a:FindFirstChild('Shoot')
+    if n and n:IsA('RemoteEvent') then n:FireServer(l, m) end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if autoShootEnabled then autoShootMurderer() end
+    end
+end)
+
+-- -------------------- VOID HIDE --------------------
+local VoidHideSettings = {
+    Enabled = false,
+    UpdateRate = 0.1,
+    VoidChangeRate = 0.06,
+    VoidHeight = 9e9 - 1000,
+    OffsetX = 20,
+    OffsetZ = 20,
+    RandomVoidPosition = true,
+    VoidRangeMin = 100000000,
+    VoidRangeMax = 1000000000,
+    VoidHeightMin = 100000000,
+    VoidHeightMax = 1000000000,
+}
+local VoidHideSpoofedProperties = {}
+local VoidHideRealPosition = CFrame.new()
+local VoidHideLastVoid = tick()
+local VoidHideLastVoidChange = tick()
+local VoidHideCurrentVoidPosition = nil
+local VoidHideInVoid = false
+local VoidHideOldNewIndex = nil
+local VoidHideOldIndex = nil
+local VoidHideConnection = nil
+
+local function RandomLargeNumber(a, b)
+    local c, d, e = b - a, math.random(0, 999999), math.random(0, 999)
+    local f = a + (d + e * 1000000) % c
+    return f
+end
+
+local function InitializeVoidHide()
+    if VoidHideOldIndex then return end
+    local a = p.Character
+    local b = a and a:FindFirstChild('HumanoidRootPart')
+    if not b then return end
+    VoidHideSpoofedProperties[b] = {}
+    VoidHideOldIndex = hookmetamethod(game, '__index', function(c, d)
+        if not checkcaller() and c and d then
+            local e = VoidHideSpoofedProperties[c]
+            if e and e[d] ~= nil then return e[d] end
+        end
+        return VoidHideOldIndex(c, d)
+    end)
+    VoidHideOldNewIndex = hookmetamethod(game, '__newindex', function(c, d, e)
+        if not checkcaller() and c and d and e then
+            local f = VoidHideSpoofedProperties[c]
+            if f and d == 'CFrame' then
+                f[d] = e
+                if VoidHideSettings.Enabled then return end
+            end
+        end
+        return VoidHideOldNewIndex(c, d, e)
+    end)
+end
+
+local function VoidSpamFunction(a, b)
+    if not VoidHideSettings.Enabled then
+        VoidHideInVoid = false
+        VoidHideCurrentVoidPosition = nil
+        return
+    end
+    if not b or not b.Parent then return end
+    local c = tick()
+    if not VoidHideCurrentVoidPosition or (c - VoidHideLastVoidChange) >= VoidHideSettings.VoidChangeRate then
+        if VoidHideSettings.RandomVoidPosition then
+            local d, e, f = RandomLargeNumber(VoidHideSettings.VoidRangeMin, VoidHideSettings.VoidRangeMax),
+                RandomLargeNumber(VoidHideSettings.VoidHeightMin, VoidHideSettings.VoidHeightMax),
+                RandomLargeNumber(VoidHideSettings.VoidRangeMin, VoidHideSettings.VoidRangeMax)
+            if math.random() > 0.5 then d = -d end
+            if math.random() > 0.5 then f = -f end
+            VoidHideCurrentVoidPosition = CFrame.new(d, e, f)
+        else
+            VoidHideCurrentVoidPosition = CFrame.new(VoidHideRealPosition.Position - Vector3.new(
+                math.random(-VoidHideSettings.OffsetX, VoidHideSettings.OffsetX),
+                VoidHideSettings.VoidHeight,
+                math.random(-VoidHideSettings.OffsetZ, VoidHideSettings.OffsetZ)
+            ))
+        end
+        VoidHideLastVoidChange = c
+    end
+    if c - VoidHideLastVoid > VoidHideSettings.UpdateRate and not VoidHideInVoid then
+        VoidHideInVoid = true
+        task.delay(VoidHideSettings.UpdateRate, function()
+            VoidHideLastVoid = c
+            VoidHideInVoid = false
+        end)
+    end
+    if VoidHideInVoid then
+        VoidHideRealPosition = VoidHideOldIndex(b, 'CFrame')
+        local d = VoidHideOldIndex(b, 'Velocity')
+        VoidHideSpoofedProperties[b]['CFrame'] = VoidHideRealPosition
+        VoidHideOldNewIndex(b, 'CFrame', VoidHideCurrentVoidPosition)
+        RunService.RenderStepped:Wait()
+        VoidHideOldNewIndex(b, 'CFrame', VoidHideRealPosition)
+        VoidHideOldNewIndex(b, 'Velocity', d)
+    else
+        if VoidHideSpoofedProperties[b]['CFrame'] then
+            VoidHideSpoofedProperties[b]['CFrame'] = nil
+        end
+    end
+end
+
+-- -------------------- AUTOFARM --------------------
+local noclipConnection = nil
+local currentTween = nil
+local originalPartProperties = {}
+local farmingActive = false
+local isFarmingCoins = false
+local CurrentCoinType = 'Coin'
+local allCoinsCollected = false
+local currentCoinsCollected = 0
+local maxCoinsInRound = 0
+local farmStartTime = 0
+local bagFullActionInProgress = false
+local resetWhenBagFull = false
+local flingMurdererWhenBagFull = false
+local flingShootWhenBagFull = false
+local shootMurdererWhenBagFull = false
+local killAllWhenBagFull = false
+
+local function getPlayerRole_server()
+    local a = game:GetService('ReplicatedStorage')
+    local b = a:FindFirstChild('GetPlayerData', true)
+    if not b then return nil end
+    local c, d = pcall(function() return b:InvokeServer() end)
+    if not c or not d then return nil end
+    local e = d[p.Name]
+    if e and e.Role then return e.Role end
+    return nil
+end
+
+local function isPlayerDead()
+    local a, b = pcall(function()
+        return game.ReplicatedStorage.Remotes.Extras.GetPlayerData:InvokeServer()[p.Name]
+    end)
+    if a and b then return b['Dead'] == true end
+    return false
+end
+
+local function restoreNormalGravity()
+    if p.Character and p.Character:FindFirstChild('HumanoidRootPart') then
+        local a = p.Character.HumanoidRootPart
+        for b, c in pairs(a:GetChildren()) do
+            if c:IsA('BodyVelocity') or c:IsA('BodyGyro') or c:IsA('BodyPosition') or c:IsA('BodyThrust') or c:IsA('BodyForce') then
+                c:Destroy()
+            end
+        end
+    end
+end
+
+local function addFarmGravity()
+    if p.Character and p.Character:FindFirstChild('HumanoidRootPart') then
+        local a = p.Character.HumanoidRootPart
+        if a:FindFirstChild('FarmGravity') then a.FarmGravity:Destroy() end
+        local b = Instance.new('BodyPosition')
+        b.Name = 'FarmGravity'
+        b.MaxForce = Vector3.new(0, math.huge, 0)
+        b.D = 1000
+        b.P = 10000
+        b.Position = a.Position
+        b.Parent = a
+    end
+end
+
+local function enableNoclip()
+    if noclipConnection then return end
+    noclipConnection = RunService.Stepped:Connect(function()
+        if isFarmingCoins and p.Character then
+            for g, h in pairs(p.Character:GetDescendants()) do
+                if h:IsA('BasePart') then h.CanCollide = false end
+            end
+        end
+    end)
+end
+
+local function disableNoclip()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    if p.Character then
+        for g, h in pairs(originalPartProperties) do
+            if g and g.Parent then
+                g.CanCollide = h.CanCollide
+                g.Massless = h.Massless
+            end
+        end
+    end
+end
+
+local function stopFarming()
+    farmingActive = false
+    if currentTween then currentTween:Cancel(); currentTween = nil end
+    if noclipConnection then noclipConnection:Disconnect(); noclipConnection = nil end
+    if p.Character then
+        for g, h in pairs(originalPartProperties) do
+            if g and g.Parent then
+                g.CanCollide = h.CanCollide
+                g.Massless = h.Massless
+            end
+        end
+        local g = p.Character:FindFirstChild('HumanoidRootPart')
+        if g then
+            g.Velocity = Vector3.new(0, 0, 0)
+            g.RotVelocity = Vector3.new(0, 0, 0)
+            g.CFrame = g.CFrame * CFrame.Angles(math.rad(-90), 0, 0)
+            g.CFrame = g.CFrame + Vector3.new(0, 2.5, 0)
+        end
+        local h = p.Character:FindFirstChild('Humanoid')
+        if h then
+            h.PlatformStand = false
+            h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+            h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        end
+    end
+    originalPartProperties = {}
+end
+
+local function startFarming()
+    if not p.Character or not p.Character:FindFirstChild('HumanoidRootPart') then return end
+    if p:GetAttribute('Alive') ~= true then return end
+    local g, h = p.Character.HumanoidRootPart, p.Character:FindFirstChild('Humanoid')
+    addFarmGravity()
+    originalPartProperties = {}
+    for i, j in pairs(p.Character:GetDescendants()) do
+        if j:IsA('BasePart') then
+            originalPartProperties[j] = { CanCollide = j.CanCollide, Massless = j.Massless }
+        end
+    end
+    g.CFrame = g.CFrame - Vector3.new(0, 2.5, 0)
+    g.CFrame = g.CFrame * CFrame.Angles(math.rad(90), 0, 0)
+    if h then
+        h.PlatformStand = true
+        h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    end
+    farmingActive = true
+end
+
+local function returncoincontainer()
+    for a, b in pairs(workspace:GetChildren()) do
+        if b:FindFirstChild('CoinContainer') and b:IsA('Model') then
+            return b:FindFirstChild('CoinContainer')
+        end
+    end
+    return nil
+end
+
+local function FindNearestCoin(a)
+    if not a then return nil, math.huge end
+    local b, c = nil, math.huge
+    for d, e in pairs(a:GetChildren()) do
+        if e:GetAttribute('CoinID') == 'Coin' and e:FindFirstChild('TouchInterest') and e.Transparency == 1 then
+            if p.Character and p.Character:FindFirstChild('HumanoidRootPart') then
+                local f = (p.Character.HumanoidRootPart.Position - e.Position).Magnitude
+                if f < c then b = e; c = f end
+            end
+        end
+    end
+    return b, c
+end
+
+local function getgun()
+    pcall(function()
+        if not isagbEnabled then return end
+        if not p:GetAttribute('Alive') then return end
+        local g = getPlayerRole_server()
+        if g == 'Murderer' then return end
+        local h = findmap()
+        if not h then return end
+        if h == 'None' then return end
+        if h:FindFirstChild('GunDrop') then
+            local i = h:FindFirstChild('GunDrop')
+            local j = i:FindFirstChild('TouchInterest')
+            if j and p.Character and p.Character:FindFirstChild('HumanoidRootPart') then
+                firetouchinterest(p.Character.HumanoidRootPart, i, 0)
+                firetouchinterest(p.Character.HumanoidRootPart, i, 1)
+            end
+        end
+    end)
+end
+
+-- CoinCollected events
+local CoinCollectedEvent = ReplicatedStorage.Remotes.Gameplay.CoinCollected
+CoinCollectedEvent.OnClientEvent:Connect(function(g, h, i)
+    if g == CurrentCoinType or g == 'Coin' then
+        currentCoinsCollected = tonumber(h) or 0
+        maxCoinsInRound = tonumber(i) or 0
+        if currentCoinsCollected >= maxCoinsInRound then
+            allCoinsCollected = true
+            if farmingActive then stopFarming(); restoreNormalGravity() end
+        else
+            allCoinsCollected = false
+        end
+    end
+end)
+
+local RoundStartEvent = ReplicatedStorage.Remotes.Gameplay.RoundStart
+local RoundEndEvent = ReplicatedStorage.Remotes.Gameplay.RoundEndFade
+RoundStartEvent.OnClientEvent:Connect(function()
+    allCoinsCollected = false; currentCoinsCollected = 0; maxCoinsInRound = 0; bagFullActionInProgress = false
+end)
+RoundEndEvent.OnClientEvent:Connect(function()
+    allCoinsCollected = false; currentCoinsCollected = 0; maxCoinsInRound = 0; bagFullActionInProgress = false
+    if farmingActive then stopFarming(); restoreNormalGravity() end
+end)
+
+-- Farm loop
+task.spawn(function()
+    while true do
+        RunService.Heartbeat:Wait()
+        local g, h, i = getPlayerRole_server(), {'Innocent','Sheriff','Murderer','Hero'}, false
+        if g then for j, k in ipairs(h) do if g == k then i = true; break end end end
+        if farmingActive and i and p.Character and p.Character:FindFirstChild('HumanoidRootPart') and p:GetAttribute('Alive') == true then
+            local j, k = p.Character.HumanoidRootPart, returncoincontainer()
+            if k then
+                for l, m in pairs(k:GetChildren()) do
+                    if m:GetAttribute('CoinID') == 'Coin' and m:FindFirstChild('TouchInterest') and m.Transparency == 1 then
+                        local n = (j.Position - m.Position).Magnitude
+                        if n <= 7.5 then firetouchinterest(j, m, 0); firetouchinterest(j, m, 1) end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        RunService.Heartbeat:Wait()
+        if bagFullActionInProgress then continue end
+        local g, h, i = getPlayerRole_server(), {'Innocent','Sheriff','Murderer','Hero'}, false
+        if g then for j, k in ipairs(h) do if g == k then i = true; break end end end
+        if farmingActive and not i then stopFarming(); restoreNormalGravity() end
+        if isFarmingCoins and farmingActive and allCoinsCollected then stopFarming(); restoreNormalGravity() end
+        if isFarmingCoins and not allCoinsCollected and p:GetAttribute('Alive') == true and i and p.Character and p.Character:FindFirstChild('HumanoidRootPart') then
+            local j = returncoincontainer()
+            if j then
+                local k, l = FindNearestCoin(j)
+                if k and k.Transparency == 1 and not allCoinsCollected then
+                    if not farmingActive then startFarming() end
+                    local m, n = p.Character.HumanoidRootPart, p.Character:FindFirstChild('Humanoid')
+                    m.Velocity = Vector3.new(0, 0, 0)
+                    m.RotVelocity = Vector3.new(0, 0, 0)
+                    local o = k.Position - Vector3.new(0, 2.5, 0)
+                    local q = CFrame.new(o) * CFrame.Angles(math.rad(90), 0, 0)
+                    enableNoclip()
+                    local r = TweenInfo.new(l / 23, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+                    currentTween = TweenService:Create(m, r, {CFrame = q})
+                    currentTween:Play()
+                    local s
+                    s = RunService.Heartbeat:Connect(function()
+                        if isFarmingCoins and p:GetAttribute('Alive') == true and m then
+                            m.Velocity = Vector3.new(0, 0, 0)
+                            m.RotVelocity = Vector3.new(0, 0, 0)
+                            local t = m:FindFirstChild('FarmGravity')
+                            if t and t:IsA('BodyPosition') then t.Position = m.Position end
+                            if n then n.PlatformStand = true end
+                        else
+                            if s then s:Disconnect() end
+                        end
+                    end)
+                    while k and k:FindFirstChild('TouchInterest') and k.Transparency == 1 and not allCoinsCollected and isFarmingCoins and p:GetAttribute('Alive') == true do
+                        RunService.Heartbeat:Wait()
+                    end
+                    if s then s:Disconnect() end
+                    if currentTween then currentTween:Cancel() end
+                    if m then m.Velocity = Vector3.new(0, 0, 0); m.RotVelocity = Vector3.new(0, 0, 0) end
+                else
+                    if farmingActive then stopFarming(); restoreNormalGravity() end
+                end
+            else
+                if farmingActive then stopFarming(); restoreNormalGravity() end
+            end
+        else
+            if farmingActive then stopFarming(); restoreNormalGravity() end
+        end
+    end
+end)
+
+-- -------------------- VISUALS --------------------
+-- Kill Effect
+local killEffectEnabled = false
+local killEffectColor = Color3.fromRGB(255, 0, 0)
+local killEffectConnections = {}
+
+local function createKillEffect(a, b)
+    if not killEffectEnabled or not a then return end
+    local c = a:Clone()
+    local d = c:FindFirstChild('HumanoidRootPart')
+    if d then d.Transparency = 1 end
+    for e, f in pairs(c:GetDescendants()) do
+        if f:IsA('BasePart') or f:IsA('MeshPart') then
+            if f.Name == 'HumanoidRootPart' then
+                f.Transparency = 1; f.Anchored = true; f.CanCollide = false; continue
+            end
+            f.Anchored = true; f.CanCollide = false
+            f.Material = Enum.Material.Neon
+            f.Color = killEffectColor
+            f.Transparency = 0
+            if f:IsA('MeshPart') then f.TextureID = '' end
+        end
+        if f:IsA('Accessory') then
+            local g = f:FindFirstChild('Handle')
+            if g and (g:IsA('BasePart') or g:IsA('MeshPart')) then
+                g.Material = Enum.Material.Neon; g.Color = killEffectColor
+                g.Transparency = 0; g.Anchored = true; g.CanCollide = false
+                if g:IsA('MeshPart') then g.TextureID = '' end
+            end
+        end
+        if f:IsA('SpecialMesh') then f.TextureId = '' end
+        if f:IsA('Decal') then
+            if f.Name ~= 'face' then f:Destroy() else f.Transparency = 1 end
+        end
+        if f:IsA('Texture') then f:Destroy() end
+        if f:IsA('Script') or f:IsA('LocalScript') or f:IsA('ModuleScript') then f:Destroy() end
+        if f:IsA('Humanoid') or f:IsA('Tool') then f:Destroy() end
+    end
+    local e, f = {}, c:FindFirstChild('HumanoidRootPart')
+    if f then
+        for g, h in pairs(c:GetDescendants()) do
+            if (h:IsA('BasePart') or h:IsA('MeshPart')) and h ~= f then
+                e[h] = f.CFrame:ToObjectSpace(h.CFrame)
+            end
+        end
+    end
+    for g, h in pairs(c:GetDescendants()) do
+        if h:IsA('Weld') or h:IsA('Motor6D') then h:Destroy() end
+    end
+    for g, h in pairs(c:GetDescendants()) do
+        if h:IsA('BasePart') or h:IsA('MeshPart') then h.Anchored = true end
+    end
+    if c.PrimaryPart then c:SetPrimaryPartCFrame(b)
+    elseif f then f.CFrame = b end
+    if f then
+        for g, h in pairs(e) do
+            if g and g.Parent then g.CFrame = f.CFrame:ToWorldSpace(h) end
+        end
+    end
+    c.Parent = workspace
+    task.spawn(function()
+        local g, h = 2, 60
+        local i = 1 / h
+        for j = 1, h do
+            task.wait(g / h)
+            for k, l in pairs(c:GetDescendants()) do
+                if l:IsA('BasePart') or l:IsA('MeshPart') then
+                    l.Transparency = math.min(1, l.Transparency + i)
+                end
+            end
+        end
+        c:Destroy()
+    end)
+end
+
+-- China Hat
+local chinaHatEnabled = false
+local chinaHatObjects = {}
+local chinaHatColor = Color3.fromRGB(255, 123, 123)
+
+local function createChinaHat(a)
+    for b, c in ipairs(chinaHatObjects) do pcall(function() c:Destroy() end) end
+    chinaHatObjects = {}
+    if not chinaHatEnabled or not a then return end
+    local b = a:FindFirstChild('Head')
+    if not b then return end
+    local c = Instance.new('Part')
+    c.Name = 'ChinaHat'; c.Size = Vector3.new(1,1,1); c.Color = chinaHatColor
+    c.Material = Enum.Material.Neon; c.Transparency = 0.2
+    c.CanCollide = false; c.Anchored = false; c.Parent = a
+    table.insert(chinaHatObjects, c)
+    local d = Instance.new('SpecialMesh')
+    d.MeshType = Enum.MeshType.FileMesh
+    d.MeshId = 'rbxassetid://1033714'
+    d.Scale = Vector3.new(1.7, 1.1, 1.7); d.Parent = c
+    table.insert(chinaHatObjects, d)
+    local e = Instance.new('Weld')
+    e.Part0 = b; e.Part1 = c; e.C0 = CFrame.new(0, 0.9, 0); e.Parent = c
+    table.insert(chinaHatObjects, e)
+    local f = Instance.new('PointLight')
+    f.Color = chinaHatColor; f.Brightness = 1; f.Range = 12; f.Shadows = true; f.Parent = c
+    table.insert(chinaHatObjects, f)
+end
+
+-- Headless / Korblox
+local headlessEnabled = false
+local korbloxEnabled = false
+local originalLegProperties = {}
+
+local function applyHeadless(a)
+    if p.Character and p.Character:FindFirstChild('Head') then
+        p.Character.Head.Transparency = a and 1 or 0
+    end
+end
+
+local function saveOriginalLegProperties()
+    if not p.Character then return end
+    local a = p.Character:FindFirstChild('RightLowerLeg')
+    local b = p.Character:FindFirstChild('RightUpperLeg')
+    local c = p.Character:FindFirstChild('RightFoot')
+    if a then originalLegProperties.RightLowerLeg = {MeshId = a.MeshId, Transparency = a.Transparency} end
+    if b then originalLegProperties.RightUpperLeg = {MeshId = b.MeshId, TextureID = b.TextureID} end
+    if c then originalLegProperties.RightFoot = {MeshId = c.MeshId, Transparency = c.Transparency} end
+end
+
+local function applyKorblox()
+    if not p.Character then return end
+    local a = p.Character:FindFirstChild('RightLowerLeg')
+    if a then a.MeshId = 'http://www.roblox.com/asset/?id=902942093'; a.Transparency = 1 end
+    local b = p.Character:FindFirstChild('RightUpperLeg')
+    if b then b.MeshId = 'http://www.roblox.com/asset/?id=902942096'; b.TextureID = 'http://www.roblox.com/asset/?id=902843398' end
+    local c = p.Character:FindFirstChild('RightFoot')
+    if c then c.MeshId = 'http://www.roblox.com/asset/?id=902942089'; c.Transparency = 1 end
+end
+
+local function restoreOriginalLeg()
+    if not p.Character then return end
+    local a = p.Character:FindFirstChild('RightLowerLeg')
+    if a and originalLegProperties.RightLowerLeg then
+        a.MeshId = originalLegProperties.RightLowerLeg.MeshId
+        a.Transparency = originalLegProperties.RightLowerLeg.Transparency
+    end
+    local b = p.Character:FindFirstChild('RightUpperLeg')
+    if b and originalLegProperties.RightUpperLeg then
+        b.MeshId = originalLegProperties.RightUpperLeg.MeshId
+        b.TextureID = originalLegProperties.RightUpperLeg.TextureID
+    end
+    local c = p.Character:FindFirstChild('RightFoot')
+    if c and originalLegProperties.RightFoot then
+        c.MeshId = originalLegProperties.RightFoot.MeshId
+        c.Transparency = originalLegProperties.RightFoot.Transparency
+    end
+end
+
+saveOriginalLegProperties()
+
+-- Textures
+local texturesEnabled = false
+local selectedTextureTheme = 'minecraft'
+local textureObjects = {}
+local texturethemes = {
+    minecraft = {
+        {'Wood','128754006217410'},{'WoodPlanks','8676581022'},{'Brick','8139086777'},
+        {'Cobblestone','17874801808'},{'Concrete','9405731606'},{'DiamondPlate','14197861013'},
+        {'Fabric','9744916443'},{'Granite','4714662147'},{'Grass','9267183930'},
+        {'Ice','11413423466'},{'Marble','14974016515'},{'Metal','14524282848'},
+        {'Sand','11119324718'},{'Slate','7801228489'},
+    },
+    playboi = {
+        {'Wood','14784281899'},{'WoodPlanks','14784281899'},{'Brick','12647798329'},
+        {'Cobblestone','12647798329'},{'Concrete','12647798329'},{'DiamondPlate','128808789797567'},
+        {'Fabric','128808789797567'},{'Granite','4722586771'},{'Grass','17303981964'},
+        {'Ice','17303981964'},{'Marble','17303981964'},{'Metal','114917525242362'},
+        {'Sand','114917525242362'},{'Slate','114917525242362'},
+    },
+    icey = {
+        {'Wood','5933003775'},{'WoodPlanks','5933003775'},{'Brick','17295828838'},
+        {'Cobblestone','11760888310'},{'Concrete','109017797659108'},{'DiamondPlate','11760888310'},
+        {'Fabric','140018484507153'},{'Granite','16833201065'},{'Grass','140018484507153'},
+        {'Ice','1090177976591089'},{'Marble','62967586'},{'Metal','11760888310'},
+        {'Sand','16833201065'},{'Slate','7397414089'},
+    },
+}
+
+local function clearTextures()
+    for a, b in ipairs(textureObjects) do pcall(function() b:Destroy() end) end
+    textureObjects = {}
+    local a, b = game:GetService('MaterialService'), Enum.Material:GetEnumItems()
+    for c, d in ipairs(b) do pcall(function() a:SetBaseMaterialOverride(d, '') end) end
+end
+
+local function applyTextures()
+    clearTextures()
+    if not texturesEnabled then return end
+    local a = texturethemes[selectedTextureTheme]
+    if not a then return end
+    local b = game:GetService('MaterialService')
+    for c, d in ipairs(a) do
+        local e, f = d[1], d[2]
+        if not f:find('rbxassetid://') and not f:find('http') then f = 'rbxassetid://' .. f end
+        pcall(function()
+            local g = Instance.new('MaterialVariant')
+            g.Name = 'Texture_' .. e
+            g.BaseMaterial = Enum.Material[e]
+            g.ColorMap = f; g.NormalMap = f; g.RoughnessMap = f; g.MetalnessMap = f
+            g.StudsPerTile = 5; g.Parent = b
+            table.insert(textureObjects, g)
+            b:SetBaseMaterialOverride(Enum.Material[e], g.Name)
+        end)
+    end
+end
+
+-- Tool Spin
+local toolSpinEnabled = false
+local toolSpinMode = '360° Forward'
+local toolSpinSpeed = 1
+local toolSpinConnection = nil
+local originalGrip = nil
+
+local function stopToolSpin()
+    if toolSpinConnection then toolSpinConnection:Disconnect(); toolSpinConnection = nil end
+    local a = p.Character
+    if a then
+        local b = a:FindFirstChildOfClass('Tool')
+        if b and originalGrip then b.Grip = originalGrip; originalGrip = nil end
+    end
+end
+
+local function startToolSpin()
+    stopToolSpin()
+    if not toolSpinEnabled then return end
+    local a, b = 0, 0
+    toolSpinConnection = RunService.Heartbeat:Connect(function(c)
+        local d = p.Character
+        if not d then return end
+        local e = d:FindFirstChildOfClass('Tool')
+        if not e then return end
+        if not originalGrip then originalGrip = e.Grip end
+        b = b + c
+        if toolSpinMode == '360° Forward' then
+            a = a + (360 * toolSpinSpeed) * c
+            if a >= 360 then a = a - 360 end
+            e.Grip = originalGrip * CFrame.Angles(math.rad(a), 0, 0)
+        elseif toolSpinMode == '360° Back' then
+            a = a - (360 * toolSpinSpeed) * c
+            if a <= -360 then a = a + 360 end
+            e.Grip = originalGrip * CFrame.Angles(math.rad(a), 0, 0)
+        elseif toolSpinMode == '360° Forward -> 360° Back' then
+            local f = 2 / toolSpinSpeed
+            local g = (b % f) / f
+            local function easeBackInOut(h)
+                local i = 1.70158 * 1.525; h = h * 2
+                if h < 1 then return 0.5 * (h * h * ((i + 1) * h - i)) end
+                h = h - 2; return 0.5 * (h * h * ((i + 1) * h + i) + 2)
+            end
+            local h = easeBackInOut(g)
+            local i = math.sin(h * math.pi * 2) * 180
+            e.Grip = originalGrip * CFrame.Angles(math.rad(i), 0, 0)
+        end
+    end)
+end
+
+-- Force Field Tools
+local forceFieldToolsEnabled = false
+local forceFieldToolsColor = Color3.fromRGB(255, 0, 255)
+local forceFieldToolsOriginalData = {}
+
+local function applyForceFieldToTool()
+    if not forceFieldToolsEnabled then return end
+    local a = p.Character
+    if not a then return end
+    local b = a:FindFirstChildOfClass('Tool')
+    if not b then return end
+    for c, d in pairs(b:GetDescendants()) do
+        if d:IsA('BasePart') or d:IsA('MeshPart') then
+            if not forceFieldToolsOriginalData[d] then
+                forceFieldToolsOriginalData[d] = {Material = d.Material, Color = d.Color}
+            end
+            d.Material = Enum.Material.ForceField
+            d.Color = forceFieldToolsColor
+        end
+    end
+end
+
+local function restoreToolMaterial()
+    local a = p.Character
+    if not a then return end
+    local b = a:FindFirstChildOfClass('Tool')
+    if not b then return end
+    for c, d in pairs(b:GetDescendants()) do
+        if d:IsA('BasePart') or d:IsA('MeshPart') then
+            if forceFieldToolsOriginalData[d] then
+                d.Material = forceFieldToolsOriginalData[d].Material
+                d.Color = forceFieldToolsOriginalData[d].Color
+            end
+        end
+    end
+end
+
+-- -------------------- FLING --------------------
+local FlingActive = false
+local SelectedFlingTarget = nil
+getgenv().OldPos = nil
+getgenv().FPDH = workspace.FallenPartsDestroyHeight
+
+local function findmap()
+    for g, h in (game.Workspace:GetChildren()) do
+        if h:GetAttribute('MapID') then return h end
+    end
+end
+
+local function findMurderer()
+    local GetPlayerData2 = ReplicatedStorage:FindFirstChild('GetPlayerData', true)
+    if not GetPlayerData2 then return nil end
+    local a, b = pcall(function() return GetPlayerData2:InvokeServer() end)
+    if not a or not b then return nil end
+    for c, d in pairs(ps:GetPlayers()) do
+        if d ~= p and d:GetAttribute('Alive') == true then
+            local e = b[d.Name]
+            if e and e.Role == 'Murderer' then return d end
+        end
+    end
+    return nil
+end
+
+local function SkidFling(g)
+    local h = p.Character
+    local i = h and h:FindFirstChildOfClass('Humanoid')
+    local j, k = i and i.RootPart, g.Character
+    if not k then return end
+    local l, m, n, o, q
+    if k:FindFirstChildOfClass('Humanoid') then l = k:FindFirstChildOfClass('Humanoid') end
+    if l and l.RootPart then m = l.RootPart end
+    if k:FindFirstChild('Head') then n = k.Head end
+    if k:FindFirstChildOfClass('Accessory') then o = k:FindFirstChildOfClass('Accessory') end
+    if o and o:FindFirstChild('Handle') then q = o.Handle end
+    if h and i and j then
+        if j.Velocity.Magnitude < 50 then getgenv().OldPos = j.CFrame end
+        if l and l.Sit then return end
+        if n then workspace.CurrentCamera.CameraSubject = n
+        elseif q then workspace.CurrentCamera.CameraSubject = q
+        elseif l and m then workspace.CurrentCamera.CameraSubject = l end
+        if not k:FindFirstChildWhichIsA('BasePart') then return end
+        local r = function(r, s, t)
+            j.CFrame = CFrame.new(r.Position) * s * t
+            h:SetPrimaryPartCFrame(CFrame.new(r.Position) * s * t)
+            j.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+            j.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+        end
+        local s = function(s)
+            local t, u, v = 2, tick(), 0
+            repeat
+                if j and l then
+                    if s.Velocity.Magnitude < 50 then
+                        v = v + 100
+                        r(s, CFrame.new(0,1.5,0) + l.MoveDirection * s.Velocity.Magnitude/1.25, CFrame.Angles(math.rad(v),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0) + l.MoveDirection * s.Velocity.Magnitude/1.25, CFrame.Angles(math.rad(v),0,0)); task.wait()
+                        r(s, CFrame.new(0,1.5,0) + l.MoveDirection * s.Velocity.Magnitude/1.25, CFrame.Angles(math.rad(v),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0) + l.MoveDirection * s.Velocity.Magnitude/1.25, CFrame.Angles(math.rad(v),0,0)); task.wait()
+                        r(s, CFrame.new(0,1.5,0) + l.MoveDirection, CFrame.Angles(math.rad(v),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0) + l.MoveDirection, CFrame.Angles(math.rad(v),0,0)); task.wait()
+                    else
+                        r(s, CFrame.new(0,1.5,l.WalkSpeed), CFrame.Angles(math.rad(90),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,-l.WalkSpeed), CFrame.Angles(0,0,0)); task.wait()
+                        r(s, CFrame.new(0,1.5,l.WalkSpeed), CFrame.Angles(math.rad(90),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0), CFrame.Angles(math.rad(90),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0), CFrame.Angles(0,0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0), CFrame.Angles(math.rad(90),0,0)); task.wait()
+                        r(s, CFrame.new(0,-1.5,0), CFrame.Angles(0,0,0)); task.wait()
+                    end
+                end
+            until u + t < tick() or not FlingActive
+        end
+        workspace.FallenPartsDestroyHeight = 0 / 0
+        local t = Instance.new('BodyVelocity')
+        t.Parent = j; t.Velocity = Vector3.new(0,0,0); t.MaxForce = Vector3.new(9e9,9e9,9e9)
+        i:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+        if m then s(m) elseif n then s(n) elseif q then s(q) end
+        t:Destroy()
+        i:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+        workspace.CurrentCamera.CameraSubject = i
+        if getgenv().OldPos then
+            repeat
+                j.CFrame = getgenv().OldPos * CFrame.new(0, 0.5, 0)
+                h:SetPrimaryPartCFrame(getgenv().OldPos * CFrame.new(0, 0.5, 0))
+                i:ChangeState('GettingUp')
+                for u, v in pairs(h:GetChildren()) do
+                    if v:IsA('BasePart') then v.Velocity, v.RotVelocity = Vector3.new(), Vector3.new() end
+                end
+                task.wait()
+            until (j.Position - getgenv().OldPos.p).Magnitude < 25
+            workspace.FallenPartsDestroyHeight = getgenv().FPDH
+        end
+    end
+end
+
+-- -------------------- ITEM SPAWNER --------------------
+local spawnerItems = {
+    {original='Harvester',custom='Harvester'},{original='Gingerscope',custom='Gingerscope'},
+    {original='Snowcannon',custom='Snowcannon'},{original='Bauble',custom='Bauble'},
+    {original='BaubleChroma',custom='BaubleChroma'},{original='Icepiercer',custom='Icepiercer'},
+    {original='TreeGun2023',custom='Evergun'},{original='TreeKnife2023',custom='Evergreen'},
+    {original='TreeGun2023Chroma',custom='Chroma Evergun'},{original='TreeKnife2023Chroma',custom='Chroma Evergreen'},
+    {original='Bloom',custom='Bloom'},{original='Flora',custom='Flora'},
+    {original='TravelerAxe',custom='Traveler Axe'},{original='TravelerGun',custom='Traveler Gun'},
+    {original='TravelerAxeChroma',custom='Chroma Traveler Axe'},{original='TravelerGunChroma',custom='Chroma Traveler Gun'},
+    {original='Celestial',custom='Celestial'},{original='Constellation',custom='Constellation'},
+    {original='ConstellationChroma',custom='Chroma Constellation'},{original='Candy',custom='Candy'},
+    {original='Sugar',custom='Sugar'},{original='Darksword',custom='Darksword'},
+    {original='Darkshot',custom='Darkshot'},{original='VampireAxe',custom='Vampire Axe'},
+    {original='VampireGun',custom='Vampire Gun'},{original='SwirlyAxe',custom='Swirly Axe'},
+    {original='SwirlyGun',custom='Swirly Gun'},{original='Flowerwood',custom='Flowerwood'},
+    {original='FlowerwoodGun',custom='Flowerwood Gun'},{original='VampireGunChroma',custom='Chroma Vampire Gun'},
+    {original='WatergunChroma',custom='Chroma Watergun'},{original='Turkey2023',custom='Turkey'},
+    {original='Sakura_K',custom='Sakura'},{original='Blossom_G',custom='Blossom'},
+    {original='Makeshift',custom='Makeshift'},{original='Sorry',custom='Corrupt'},
+    {original='HeartWand',custom='HeartWand'},
+}
+
+local function spawnItem(g)
+    local h = pcall(function()
+        local h = require(game:GetService('ReplicatedStorage').Modules.ProfileData)
+        local i, j = h.Weapons, g
+        for k, l in ipairs(spawnerItems) do
+            if l.custom == g then j = l.original; break end
+        end
+        if not i.Owned[j] then i.Owned[j] = 1 else i.Owned[j] += 1 end
+        h.Weapons = i
+        local k = game:GetService('ReplicatedStorage'):FindFirstChild('Remotes')
+        if k then
+            local l = k:FindFirstChild('Inventory')
+            if l then
+                local m = l:FindFirstChild('ChangeInventoryItem')
+                if m then m:FireServer(j, 'Add') end
+                local n = l:FindFirstChild('InventoryDataChanged')
+                if n then n:Fire() end
+            end
+        end
+    end)
+    return h
+end
+
+-- -------------------- DANCE --------------------
+local danceEnabled = false
+local selectedDanceId = '127118661424463'
+local currentDanceTrack = nil
+local danceList = {
+    ['Dance 1'] = '127118661424463',
+    ['Dance 2'] = '82682811348660',
+    ['Dance 3'] = '10714340543',
+    ['Dance 4'] = '15609995579',
+}
+
+local function playDance()
+    if not p.Character then return end
+    if not selectedDanceId then return end
+    local g = p.Character:FindFirstChildOfClass('Humanoid')
+    if not g then return end
+    local h = g:FindFirstChildOfClass('Animator')
+    if not h then h = Instance.new('Animator'); h.Parent = g end
+    if currentDanceTrack then
+        pcall(function() currentDanceTrack:Stop() end)
+        task.wait(0.1)
+        pcall(function() currentDanceTrack:Destroy() end)
+        currentDanceTrack = nil
+    end
+    task.wait(0.1)
+    local i = Instance.new('Animation')
+    i.AnimationId = 'rbxassetid://' .. tostring(selectedDanceId)
+    pcall(function()
+        currentDanceTrack = h:LoadAnimation(i)
+        currentDanceTrack.Looped = true
+        currentDanceTrack.Priority = Enum.AnimationPriority.Action
+        currentDanceTrack:Play(0.1, 1, 1)
+    end)
+    i:Destroy()
+end
+
+local function stopDance()
+    if currentDanceTrack then
+        pcall(function() currentDanceTrack:Stop(); currentDanceTrack:Destroy() end)
+        currentDanceTrack = nil
+    end
+end
+
+p.CharacterAdded:Connect(function(g)
+    g:WaitForChild('Humanoid'); task.wait(0.5)
+    if danceEnabled then playDance() end
+end)
 
 -- ตั้งค่าปุ่มกดเปิด-ปิดเมนู UI (ปุ่ม Alt ซ้าย)
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
