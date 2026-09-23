@@ -2767,14 +2767,20 @@ local function loadState()
     end
 
     -- sync UI หลัง apply ทั้งหมด
-    task.spawn(function() task.wait(0.5); syncUI() end)
+task.spawn(function()
+    task.wait(2) -- รอ UI โหลดเสร็จสมบูรณ์ก่อน
+    for i = 1, 3 do -- ลอง sync 3 รอบ กันกรณี WindUI ยังไม่พร้อม
+        syncUI()
+        task.wait(0.5)
+    end
+end)
 
     Library:Notify({ Title='BlackCrown-X', Desc='โหลด config ก่อนหน้าสำเร็จ!', Duration=3, Icon='check' })
 end
 
 -- โหลดตอนเริ่ม รอ character พร้อม
 task.spawn(function()
-    task.wait(1.5)
+    task.wait(3) -- รอนานขึ้นให้ WindUI โหลด elements ทั้งหมดก่อน
     if not p.Character then p.CharacterAdded:Wait() end
     p.Character:WaitForChild('HumanoidRootPart', 10)
     task.wait(1)
