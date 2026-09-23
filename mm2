@@ -28,7 +28,7 @@ ROLE_COLORS = {
 }
 
 UIElements = {}
-
+getgenv().UIElements = UIElements  -- export ออก global
 isafEnabled = false
 isagbEnabled = false
 isFarmingCoins = false
@@ -112,6 +112,7 @@ Window = Library:CreateWindow({
 Library:SetTheme('BlackCrown')
 _G.BlackCrownX_Library = Library
 _G.BlackCrownX_Window = Window
+getgenv().BCX_UIElements = UIElements  -- backup reference
 
 -- ============================================================
 -- COMBAT TAB
@@ -2613,6 +2614,10 @@ local function saveState()
 end
 
 local function syncUI()
+    -- ดึง UIElements จาก getgenv กันกรณี scope หาย
+    local elements = getgenv().UIElements or UIElements
+    if not elements then return end
+
     local syncList = {
         {UIElements.autoKillAllToggle,      autoKillAllEnabled},
         {UIElements.autoKillSelectedToggle, autoKillSelectedEnabled},
