@@ -99,7 +99,7 @@ Library:AddTheme({
     Outline     = Color3.fromHex('#333333'),
     Text        = Color3.fromHex('#ffffff'),
     Placeholder = Color3.fromHex('#666666'),
-    Button      = Color3.fromHex('FF22CE00'),
+    Button      = Color3.fromHex('#22CE00'),
     Icon        = Color3.fromHex('#aaaaaa'),
 })
 
