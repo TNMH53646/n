@@ -99,7 +99,7 @@ Library:AddTheme({
     Outline     = Color3.fromHex('#333333'),
     Text        = Color3.fromHex('#ffffff'),
     Placeholder = Color3.fromHex('#666666'),
-    Button      = Color3.fromHex('#222222'),
+    Button      = Color3.fromHex('FF22CE00'),
     Icon        = Color3.fromHex('#aaaaaa'),
 })
 
@@ -127,6 +127,7 @@ UIElements.autoKillAllToggle = MainTab:Toggle({
     Value = false,
     Callback = function(a) autoKillAllEnabled = a end,
 })
+getgenv().UIElements = UIElements
 
 MainTab:Button({
     Title = 'Kill All',
@@ -253,6 +254,7 @@ UIElements.autoKillSelectedToggle = MainTab:Toggle({
     Value = false,
     Callback = function(a) autoKillSelectedEnabled = a end,
 })
+getgenv().UIElements = UIElements
 
 -- Dropdown เลือกชื่อ (ไม่ kill ทันที)
 killSelectedPlayerDropdown = MainTab:Dropdown({
@@ -463,6 +465,7 @@ UIElements.autoShootToggle = MainTab:Toggle({
     Title = 'Auto Shoot Murderer', Desc = 'ยิงฆาตกรอัตโนมัติ', Value = false,
     Callback = function(a) autoShootEnabled = a end,
 })
+getgenv().UIElements = UIElements
 
 task.spawn(function()
     while true do task.wait(0.1); if autoShootEnabled then autoShootMurderer() end end
@@ -476,6 +479,7 @@ UIElements.magicBulletToggle = MainTab:Toggle({
         else disableMagicBullet(); Library:Notify({ Title='Magic Bullet Disabled', Desc='GunClient restored', Duration=2 }) end
     end,
 })
+getgenv().UIElements = UIElements
 
 MainTab:Section({ Title = 'ฟังก์ชันประชาชน' })
 
@@ -483,6 +487,7 @@ UIElements.autoGrabGunToggle = MainTab:Toggle({
     Title = 'Auto Grab Gun', Desc = 'หยิบปืนอัตโนมัติเมื่อ Sheriff เสียชีวิต', Value = false,
     Callback = function(a) isagbEnabled = a end,
 })
+getgenv().UIElements = UIElements
 
 -- ============================================================
 -- LOCAL PLAYER TAB
@@ -493,6 +498,7 @@ UIElements.antiFlingToggle = LocalPlayerTab:Toggle({
     Title = 'Anti-Fling', Desc = 'ป้องกันผู้เล่นอื่น Fling คุณ', Value = false,
     Callback = function(a) isafEnabled = a end,
 })
+getgenv().UIElements = UIElements
 
 LocalPlayerTab:Section({ Title = 'Void Hide' })
 
@@ -656,8 +662,9 @@ UIElements.voidHideToggle = LocalPlayerTab:Toggle({
         end
     end,
 })
+getgenv().UIElements = UIElements
 
-LocalPlayerTab:Toggle({
+UIElements.showVoidPosToggle = LocalPlayerTab:Toggle({
     Title = 'Show VoidHide Position', Desc = 'แสดงตำแหน่งจริงบน server ด้วย marker', Value = false,
     Callback = function(a)
         showVoidPositionEnabled = a
@@ -669,6 +676,7 @@ LocalPlayerTab:Toggle({
         end
     end,
 })
+getgenv().UIElements = UIElements
 
 RunService.Heartbeat:Connect(function()
     if not showVoidPositionEnabled or not VoidHideSettings.Enabled then
@@ -767,11 +775,15 @@ UIElements.walkSpeedToggle = LocalPlayerTab:Toggle({
         else if p.Character then local b=p.Character:FindFirstChildOfClass('Humanoid'); if b then b.WalkSpeed=16 end end end
     end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.walkSpeedSlider = LocalPlayerTab:Slider({
     Title='WalkSpeed Value', Desc='กำหนดความเร็วเดินเอง', Step=1,
     Value={Min=16,Max=200,Default=16},
     Callback=function(a) customWalkSpeed=a; if walkSpeedEnabled then applyWalkSpeed() end end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.jumpPowerToggle = LocalPlayerTab:Toggle({
     Title='Custom JumpPower', Desc='เปิดใช้งานพลังกระโดดแบบกำหนดเอง', Value=false,
     Callback=function(a)
@@ -780,11 +792,14 @@ UIElements.jumpPowerToggle = LocalPlayerTab:Toggle({
         else if p.Character then local b=p.Character:FindFirstChildOfClass('Humanoid'); if b then b.JumpPower=50 end end end
     end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.jumpPowerSlider = LocalPlayerTab:Slider({
     Title='JumpPower Value', Desc='กำหนดพลังกระโดดเอง', Step=1,
     Value={Min=50,Max=200,Default=50},
     Callback=function(a) customJumpPower=a; if jumpPowerEnabled then applyJumpPower() end end,
 })
+getgenv().UIElements = UIElements
 
 fovEnabled = false
 customFOV = 70
@@ -794,14 +809,17 @@ end
 
 task.spawn(function() while true do RunService.Heartbeat:Wait(); if fovEnabled then applyFOV() end end end)
 
-LocalPlayerTab:Toggle({
+UIElements.fovToggle = LocalPlayerTab:Toggle({
     Title='Custom FOV', Desc='เปิดใช้งาน FOV แบบกำหนดเอง', Value=false,
     Callback=function(a) fovEnabled=a; if a then applyFOV() else local b=workspace.CurrentCamera; if b then b.FieldOfView=70 end end end,
 })
-LocalPlayerTab:Slider({
+getgenv().UIElements = UIElements
+
+UIElements.fovSlider = LocalPlayerTab:Slider({
     Title='FOV Value', Desc='กำหนดค่า FOV', Step=1, Value={Min=70,Max=120,Default=70},
     Callback=function(a) customFOV=a; if fovEnabled then applyFOV() end end,
 })
+getgenv().UIElements = UIElements
 
 -- ============================================================
 -- AUTOFARM TAB
@@ -925,26 +943,37 @@ UIElements.farmCoinsToggle = AutoFarmTab:Toggle({
         else isFarmingCoins=false; if farmingActive then stopFarming() end; restoreNormalGravity(); farmStats.Status='Disabled'; updateFarmInfo() end
     end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.resetBagToggle = AutoFarmTab:Toggle({
     Title='Reset When Bag Full (Innocent)', Desc='รีเซ็ตตัวละครเมื่อกระเป๋าเต็ม', Value=false,
     Callback=function(a) resetWhenBagFull=a end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.flingMurdererBagToggle = AutoFarmTab:Toggle({
     Title='Fling Murderer When Bag Full', Desc='Fling the murderer when bag is full', Value=false,
     Callback=function(a) flingMurdererWhenBagFull=a end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.flingShootBagToggle = AutoFarmTab:Toggle({
     Title='Fling Sheriff & Shoot When Bag Full', Desc='Fling sheriff and shoot murderer when bag is full', Value=false,
     Callback=function(a) flingShootWhenBagFull=a end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.shootMurdererBagToggle = AutoFarmTab:Toggle({
     Title='Shoot Murderer When Bag Full (Sheriff)', Desc='ยิงฆาตกรเมื่อกระเป๋าเต็ม', Value=false,
     Callback=function(a) shootMurdererWhenBagFull=a end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.killAllBagToggle = AutoFarmTab:Toggle({
     Title='Kill All When Bag Full (Murderer)', Desc='สังหารทุกคนเมื่อกระเป๋าเต็ม', Value=false,
     Callback=function(a) killAllWhenBagFull=a end,
 })
+getgenv().UIElements = UIElements
 
 lastBagCheckTime = 0
 bagFullActionInProgress = false
@@ -1045,6 +1074,8 @@ UIElements.forceFieldToggle = VisualsTab:Toggle({
         end
     end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Colorpicker({
     Title='ForceField Color', Desc='เลือกสีสำหรับวัสดุ ForceField ของร่างกาย', Default=Color3.fromRGB(0,170,255),
     Callback=function(a) forceFieldColor=a; if forceFieldEnabled then applyForceFieldMaterial() end end,
@@ -1101,6 +1132,7 @@ UIElements.auraToggle = VisualsTab:Toggle({
     Title='Character Aura', Desc='เพิ่มเอฟเฟกต์ Aura รอบตัวละคร', Value=false,
     Callback=function(a) auraEnabled=a; if a then createAura(p.Character) else clearAura() end end,
 })
+getgenv().UIElements = UIElements
 
 killEffectEnabled = false
 killEffectColor = Color3.fromRGB(255, 0, 0)
@@ -1201,6 +1233,8 @@ UIElements.killEffectToggle = VisualsTab:Toggle({
         end
     end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Colorpicker({
     Title='Kill Effect Color', Desc='เลือกสีสำหรับ Clone เอฟเฟกต์การสังหาร', Default=Color3.fromRGB(255,0,0),
     Callback=function(a) killEffectColor=a end,
@@ -1239,6 +1273,8 @@ UIElements.chinaHatToggle = VisualsTab:Toggle({
         else for b, c in ipairs(chinaHatObjects) do pcall(function() c:Destroy() end) end; chinaHatObjects={} end
     end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Colorpicker({
     Title='China Hat Color', Desc='เลือกสีหมวกจีน', Default=Color3.fromRGB(255,123,123),
     Callback=function(a) chinaHatColor=a; if chinaHatEnabled and p.Character then createChinaHat(p.Character) end end,
@@ -1284,10 +1320,13 @@ UIElements.headlessToggle = VisualsTab:Toggle({
     Title='Headless', Desc='ทำให้หัวของตัวละครมองไม่เห็น', Value=false,
     Callback=function(a) headlessEnabled=a; applyHeadless(a) end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.korbloxToggle = VisualsTab:Toggle({
     Title='Korblox Leg', Desc='ใส่ขา Korblox ให้ตัวละคร', Value=false,
     Callback=function(a) korbloxEnabled=a; if a then applyKorblox() else restoreOriginalLeg() end end,
 })
+getgenv().UIElements = UIElements
 
 VisualsTab:Section({ Title='Sky & Weather' })
 
@@ -1295,7 +1334,7 @@ oldPropertiesshaders = {}
 shadersenabled = false
 Lighting = game:GetService('Lighting')
 
-VisualsTab:Toggle({
+UIElements.rtxToggle = VisualsTab:Toggle({
     Title='RTX Shaders', Desc='เปิดเอฟเฟกต์แสงและท้องฟ้าสมจริง', Value=false,
     Callback=function(a)
         if a then
@@ -1316,6 +1355,7 @@ VisualsTab:Toggle({
         end
     end,
 })
+getgenv().UIElements = UIElements
 
 skyEnabled = false
 selectedSkyType = 'Sunset'
@@ -1358,6 +1398,8 @@ UIElements.skyToggle = VisualsTab:Toggle({
         end
     end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Dropdown({
     Title='Sky Type', Desc='เลือกประเภท Skybox',
     Values={'Sunset','Night','Minecraft','Evening','Purple','Pink','Chill'},
@@ -1395,6 +1437,8 @@ UIElements.weatherToggle = VisualsTab:Toggle({
     Title='Weather Effect', Desc='เพิ่มอนุภาคสภาพอากาศ', Value=false,
     Callback=function(a) weatherEnabled=a; createWeather() end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Dropdown({
     Title='Weather Type', Desc='เลือกประเภทสภาพอากาศ',
     Values={'LightRain','Rain','Snow'}, Value='LightRain',
@@ -1404,7 +1448,7 @@ VisualsTab:Colorpicker({
     Title='Weather Color', Desc='เลือกสีอนุภาคสภาพอากาศ', Default=Color3.fromRGB(200,200,255),
     Callback=function(a) weatherColor=a; if weatherEnabled then createWeather() end end,
 })
-VisualsTab:Slider({
+UIElements.weatherIntensitySlider = VisualsTab:Slider({
     Title='Weather Intensity', Desc='ควบคุมอัตราการสปอว์นอนุภาค', Step=1, Value={Min=0.1,Max=10,Default=1},
     Callback=function(a)
         weatherIntensity=a
@@ -1413,6 +1457,8 @@ VisualsTab:Slider({
         end
     end,
 })
+getgenv().UIElements = UIElements
+
 task.spawn(function()
     while true do
         RunService.Heartbeat:Wait()
@@ -1453,6 +1499,8 @@ UIElements.crosshairToggle = VisualsTab:Toggle({
     Title='Crosshair', Desc='Crosshair หมุนได้แบบกำหนดเอง', Value=false,
     Callback=function(a) crosshairEnabled=a; createCrosshair() end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Colorpicker({
     Title='Crosshair Color', Desc='เลือกสี Crosshair', Default=Color3.fromRGB(255,255,255),
     Callback=function(a) crosshairColor=a; if crosshairEnabled then for b, c in ipairs(crosshairLines) do c.Color=a end end end,
@@ -1528,10 +1576,13 @@ UIElements.toolSpinToggle = VisualsTab:Toggle({
     Title='Tool Spin', Desc='หมุนอาวุธที่ถืออยู่พร้อมแอนิเมชัน', Value=false,
     Callback=function(a) toolSpinEnabled=a; if a then startToolSpin() else stopToolSpin() end end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.toolSpinSlider = VisualsTab:Slider({
     Title='Spin Speed', Desc='ควบคุมความเร็วการหมุน', Step=1, Value={Min=0.1,Max=5,Default=1},
     Callback=function(a) toolSpinSpeed=a; if toolSpinEnabled then startToolSpin() end end,
 })
+getgenv().UIElements = UIElements
 
 forceFieldToolsEnabled = false
 forceFieldToolsColor = Color3.fromRGB(255, 0, 255)
@@ -1584,6 +1635,8 @@ UIElements.forceFieldToolsToggle = VisualsTab:Toggle({
         else restoreToolMaterial(); forceFieldToolsOriginalData={}; Library:Notify({ Title='ForceField Tools Disabled', Desc='คืนวัสดุอาวุธแล้ว', Duration=2 }) end
     end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Colorpicker({
     Title='ForceField Tools Color', Desc='เลือกสีสำหรับวัสดุ ForceField ของอาวุธ', Default=Color3.fromRGB(255,0,255),
     Callback=function(a) forceFieldToolsColor=a; if forceFieldToolsEnabled then applyForceFieldToTool() end end,
@@ -1625,6 +1678,8 @@ UIElements.texturesToggle = VisualsTab:Toggle({
     Title='Material Textures', Desc='เปลี่ยน Texture วัสดุในเกม', Value=false,
     Callback=function(a) texturesEnabled=a; applyTextures() end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Dropdown({
     Title='Texture Theme', Desc='เลือก theme texture',
     Values={'minecraft','playboi','icey'}, Value='minecraft',
@@ -1652,10 +1707,14 @@ UIElements.lightingToggle = VisualsTab:Toggle({
         if not a then lighting.Ambient=defaultAmbient; lighting.ClockTime=defaultTime; ambientEnabled=false; timeEnabled=false end
     end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.ambientToggle = VisualsTab:Toggle({
     Title='Custom Ambient', Desc='เปลี่ยนสีแสง Ambient', Value=false,
     Callback=function(a) ambientEnabled=a; if not a then lighting.Ambient=defaultAmbient end end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Colorpicker({
     Title='Ambient Color', Desc='เลือกสีแสง Ambient', Default=Color3.fromRGB(255,123,123),
     Callback=function(a) ambientColor=a end,
@@ -1664,10 +1723,13 @@ UIElements.timeToggle = VisualsTab:Toggle({
     Title='Custom Time', Desc='ล็อกเวลาในเกม', Value=false,
     Callback=function(a) timeEnabled=a; if not a then lighting.ClockTime=defaultTime end end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.timeSlider = VisualsTab:Slider({
     Title='Time Value', Desc='กำหนดเวลาในเกม (0-24)', Step=1, Value={Min=0,Max=24,Default=12},
     Callback=function(a) timeValue=a end,
 })
+getgenv().UIElements = UIElements
 
 ccEnabled = false
 ccEffect = nil
@@ -1687,6 +1749,8 @@ UIElements.ccToggle = VisualsTab:Toggle({
         else if ccEffect then ccEffect:Destroy(); ccEffect=nil end end
     end,
 })
+getgenv().UIElements = UIElements
+
 VisualsTab:Slider({ Title='Saturation',Desc='ปรับความอิ่มตัวของสี',Step=1,Value={Min=0,Max=1,Default=0},Callback=function(a) ccSaturation=a; if ccEffect then ccEffect.Saturation=a end end })
 VisualsTab:Slider({ Title='Contrast',Desc='ปรับ Contrast',Step=1,Value={Min=0,Max=1,Default=0},Callback=function(a) ccContrast=a; if ccEffect then ccEffect.Contrast=a end end })
 VisualsTab:Slider({ Title='Brightness',Desc='ปรับความสว่าง',Step=1,Value={Min=0,Max=1,Default=0},Callback=function(a) ccBrightness=a; if ccEffect then ccEffect.Brightness=a end end })
@@ -1735,7 +1799,7 @@ local function createWatermark()
         watermarkText1=nil; watermarkText2=nil; watermarkText3=nil
     end
     if not watermarkEnabled then return end
-    watermarkText1=Drawing.new('Text'); watermarkText1.Text='heartagram'; watermarkText1.Size=18
+    watermarkText1=Drawing.new('Text'); watermarkText1.Text='BlackCrownX'; watermarkText1.Size=18
     watermarkText1.Center=false; watermarkText1.Outline=true; watermarkText1.Color=watermarkHeartagramColor
     watermarkText1.Visible=true; watermarkText1.Font=3
     watermarkText2=Drawing.new('Text'); watermarkText2.Text='hub'; watermarkText2.Size=18
@@ -1752,6 +1816,7 @@ UIElements.watermarkToggle = VisualsTab:Toggle({
     Title='Watermark', Desc='แสดง Watermark บนหน้าจอ', Value=false,
     Callback=function(a) watermarkEnabled=a; createWatermark() end,
 })
+getgenv().UIElements = UIElements
 VisualsTab:Colorpicker({ Title='Heartagram Color', Default=Color3.fromRGB(226,226,226), Callback=function(a) watermarkHeartagramColor=a; if watermarkText1 then watermarkText1.Color=a end end })
 VisualsTab:Colorpicker({ Title='Hub Color', Default=Color3.fromRGB(255,123,189), Callback=function(a) watermarkHubColor=a; if watermarkText2 then watermarkText2.Color=a end end })
 VisualsTab:Colorpicker({ Title='Safe Color', Default=Color3.fromRGB(0,255,0), Callback=function(a) watermarkSafeColor=a; if watermarkText3 and VoidHideSettings.Enabled then watermarkText3.Color=a end end })
@@ -1795,12 +1860,15 @@ UIElements.allESPToggle = VisualsTab:Toggle({
         ESP_SETTINGS.Murderer=state; ESP_SETTINGS.Sheriff=state; ESP_SETTINGS.Innocent=state; ESP_SETTINGS.Hero=state
     end,
 })
+getgenv().UIElements = UIElements
+
 UIElements.allNameESPToggle = VisualsTab:Toggle({
     Title='⚡ เปิด Name ESP ทั้งหมด', Desc='เปิด/ปิด ชื่อบนหัว ESP ทุกบทบาทพร้อมกัน', Value=false,
     Callback=function(state)
         NAME_ESP_SETTINGS.Murderer=state; NAME_ESP_SETTINGS.Sheriff=state; NAME_ESP_SETTINGS.Innocent=state; NAME_ESP_SETTINGS.Hero=state
     end,
 })
+getgenv().UIElements = UIElements
 
 ROLE_COLORS = { Murderer=Color3.fromRGB(255,0,0), Sheriff=Color3.fromRGB(0,0,255), Hero=Color3.fromRGB(255,255,0), Innocent=Color3.fromRGB(0,255,0) }
 
@@ -1904,12 +1972,18 @@ end)
 
 local AimbotSection=AimbotTab:Section({ Title='ตั้งค่า Aimbot' })
 UIElements.aimbotToggle = AimbotSection:Toggle({ Title='Enable Aimbot', Desc='เปิดใช้งาน Aimbot (กดคลิกขวาค้าง)', Value=false, Callback=function(state) aimbotEnabled=state end })
+getgenv().UIElements = UIElements
+
 UIElements.wallCheckToggle = AimbotSection:Toggle({ Title='Wallcheck', Desc='ไม่ล็อกเป้าหมายหากมีสิ่งกีดขวาง', Value=false, Callback=function(state) wallCheckEnabled=state end })
+getgenv().UIElements = UIElements
+
 AimbotSection:Dropdown({ Title='Target Part', Desc='เลือกส่วนของร่างกายที่ต้องการให้ล็อกเป้า', Values={'Head','HumanoidRootPart'}, Value='Head', Callback=function(v) aimbotTargetPart=v end })
 AimbotSection:Input({ Title='Smoothness', Desc='ปรับความนุ่มนวล (1 = ล็อกทันที)', Value='1', Placeholder='เช่น 1, 2, 5...', Callback=function(val) local num=tonumber(val); if num and num>0 then aimbotSmoothness=num end end })
 
 local FOVSection=AimbotTab:Section({ Title='ปรับแต่ง FOV' })
 UIElements.fovCircleToggle = FOVSection:Toggle({ Title='Enable FOV Circle', Desc='แสดงวงกลมกำหนดระยะการล็อกเป้า', Value=false, Callback=function(state) fovEnabled_aim=state end })
+getgenv().UIElements = UIElements
+
 FOVSection:Input({ Title='FOV Radius', Value='150', Placeholder='เช่น 100, 150...', Callback=function(val) local num=tonumber(val); if num and num>0 then fovRadius=num end end })
 FOVSection:Colorpicker({ Title='FOV Circle Color', Default=Color3.fromRGB(255,255,255), Callback=function(color) fovColor=color end })
 
@@ -1920,15 +1994,29 @@ ESPTab = Window:Tab({ Title='ESP (แสดงตำแหน่ง)', Icon='eye
 
 local ESPSection=ESPTab:Section({ Title='ESP ตามบทบาท' })
 UIElements.espMurdererToggle = ESPSection:Toggle({ Title='Murderer Highlight ESP', Value=false, Callback=function(state) ESP_SETTINGS.Murderer=state end })
+getgenv().UIElements = UIElements
+
 UIElements.espSheriffToggle = ESPSection:Toggle({ Title='Sheriff Highlight ESP', Value=false, Callback=function(state) ESP_SETTINGS.Sheriff=state end })
+getgenv().UIElements = UIElements
+
 UIElements.espInnocentToggle = ESPSection:Toggle({ Title='Innocent Highlight ESP', Value=false, Callback=function(state) ESP_SETTINGS.Innocent=state end })
+getgenv().UIElements = UIElements
+
 UIElements.espHeroToggle = ESPSection:Toggle({ Title='Hero Highlight ESP', Value=false, Callback=function(state) ESP_SETTINGS.Hero=state end })
+getgenv().UIElements = UIElements
 
 local NameESPSection=ESPTab:Section({ Title='แสดงชื่อ' })
 UIElements.nameMurdererToggle = NameESPSection:Toggle({ Title='Murderer Name ESP', Value=false, Callback=function(state) NAME_ESP_SETTINGS.Murderer=state end })
+getgenv().UIElements = UIElements
+
 UIElements.nameSheriffToggle = NameESPSection:Toggle({ Title='Sheriff Name ESP', Value=false, Callback=function(state) NAME_ESP_SETTINGS.Sheriff=state end })
+getgenv().UIElements = UIElements
+
 UIElements.nameInnocentToggle = NameESPSection:Toggle({ Title='Innocent Name ESP', Value=false, Callback=function(state) NAME_ESP_SETTINGS.Innocent=state end })
+getgenv().UIElements = UIElements
+
 UIElements.nameHeroToggle = NameESPSection:Toggle({ Title='Hero Name ESP', Value=false, Callback=function(state) NAME_ESP_SETTINGS.Hero=state end })
+getgenv().UIElements = UIElements
 
 local ESPCustomSection=ESPTab:Section({ Title='ตัวเลือกการแสดง ESP' })
 ESPCustomSection:Toggle({ Title='Show 2D Box', Value=false, Callback=function(state) ESP_CUSTOMIZATION.Box2D=state end })
@@ -2143,6 +2231,7 @@ MiscTab:Dropdown({ Title='เลือกท่าเต้น', Values={'Dance 
     Callback=function(g) selectedDanceId=danceList[g] or '127118661424463'; if danceEnabled then stopDance(); task.wait(0.1); playDance() end end })
 UIElements.danceToggle = MiscTab:Toggle({ Title='Auto Dance', Desc='เล่นท่าเต้นอัตโนมัติ', Value=false,
     Callback=function(g) danceEnabled=g; if g then playDance() else stopDance() end end })
+getgenv().UIElements = UIElements
 
 MiscTab:Section({ Title='Fling ผู้เล่น' })
 
@@ -2554,6 +2643,7 @@ local function saveState()
             isafEnabled=isafEnabled,
             isagbEnabled=isagbEnabled,
             VoidHideEnabled=VoidHideSettings.Enabled,
+            VoidHidePOS=showVoidPositionEnabled,
             walkSpeedEnabled=walkSpeedEnabled,
             customWalkSpeed=customWalkSpeed,
             jumpPowerEnabled=jumpPowerEnabled,
@@ -2619,55 +2709,60 @@ local function syncUI()
     if not elements then return end
 
     local syncList = {
-        {UIElements.autoKillAllToggle,      autoKillAllEnabled},
-        {UIElements.autoKillSelectedToggle, autoKillSelectedEnabled},
-        {UIElements.autoShootToggle,        autoShootEnabled},
-        {UIElements.magicBulletToggle,      magicBulletEnabled},
-        {UIElements.antiFlingToggle,        isafEnabled},
-        {UIElements.autoGrabGunToggle,      isagbEnabled},
-        {UIElements.voidHideToggle,         VoidHideSettings.Enabled},
-        {UIElements.walkSpeedToggle,        walkSpeedEnabled},
-        {UIElements.jumpPowerToggle,        jumpPowerEnabled},
-        {UIElements.farmCoinsToggle,        isFarmingCoins},
-        {UIElements.resetBagToggle,         resetWhenBagFull},
-        {UIElements.flingMurdererBagToggle, flingMurdererWhenBagFull},
-        {UIElements.flingShootBagToggle,    flingShootWhenBagFull},
-        {UIElements.shootMurdererBagToggle, shootMurdererWhenBagFull},
-        {UIElements.killAllBagToggle,       killAllWhenBagFull},
-        {UIElements.forceFieldToggle,       forceFieldEnabled},
-        {UIElements.headlessToggle,         headlessEnabled},
-        {UIElements.korbloxToggle,          korbloxEnabled},
-        {UIElements.auraToggle,             auraEnabled},
-        {UIElements.killEffectToggle,       killEffectEnabled},
-        {UIElements.chinaHatToggle,         chinaHatEnabled},
-        {UIElements.skyToggle,              skyEnabled},
-        {UIElements.weatherToggle,          weatherEnabled},
-        {UIElements.crosshairToggle,        crosshairEnabled},
-        {UIElements.toolSpinToggle,         toolSpinEnabled},
-        {UIElements.forceFieldToolsToggle,  forceFieldToolsEnabled},
-        {UIElements.texturesToggle,         texturesEnabled},
-        {UIElements.lightingToggle,         lightingEnabled},
-        {UIElements.ambientToggle,          ambientEnabled},
-        {UIElements.timeToggle,             timeEnabled},
-        {UIElements.ccToggle,               ccEnabled},
-        {UIElements.watermarkToggle,        watermarkEnabled},
-        {UIElements.allESPToggle,           allESPEnabled},
-        {UIElements.espMurdererToggle,      ESP_SETTINGS.Murderer},
-        {UIElements.espSheriffToggle,       ESP_SETTINGS.Sheriff},
-        {UIElements.espInnocentToggle,      ESP_SETTINGS.Innocent},
-        {UIElements.espHeroToggle,          ESP_SETTINGS.Hero},
-        {UIElements.nameMurdererToggle,     NAME_ESP_SETTINGS.Murderer},
-        {UIElements.nameSheriffToggle,      NAME_ESP_SETTINGS.Sheriff},
-        {UIElements.nameInnocentToggle,     NAME_ESP_SETTINGS.Innocent},
-        {UIElements.nameHeroToggle,         NAME_ESP_SETTINGS.Hero},
-        {UIElements.aimbotToggle,           aimbotEnabled},
-        {UIElements.wallCheckToggle,        wallCheckEnabled},
-        {UIElements.fovCircleToggle,        fovEnabled_aim},
-        {UIElements.danceToggle,            danceEnabled},
-        {UIElements.walkSpeedSlider,        customWalkSpeed},
-        {UIElements.jumpPowerSlider,        customJumpPower},
-        {UIElements.toolSpinSlider,         toolSpinSpeed},
-        {UIElements.timeSlider,             timeValue},
+        {UIElements.autoKillAllToggle,       autoKillAllEnabled},
+        {UIElements.autoKillSelectedToggle,  autoKillSelectedEnabled},
+        {UIElements.autoShootToggle,         autoShootEnabled},
+        {UIElements.magicBulletToggle,       magicBulletEnabled},
+        {UIElements.antiFlingToggle,         isafEnabled},
+        {UIElements.autoGrabGunToggle,       isagbEnabled},
+        {UIElements.voidHideToggle,          VoidHideSettings.Enabled},
+        {UIElements.showVoidPosToggle,       showVoidPositionEnabled},
+        {UIElements.walkSpeedToggle,         walkSpeedEnabled},
+        {UIElements.walkSpeedSlider,         customWalkSpeed},
+        {UIElements.jumpPowerToggle,         jumpPowerEnabled},
+        {UIElements.jumpPowerSlider,         customJumpPower},
+        {UIElements.fovToggle,               fovEnabled},
+        {UIElements.fovSlider,               customFOV},
+        {UIElements.farmCoinsToggle,         isFarmingCoins},
+        {UIElements.resetBagToggle,          resetWhenBagFull},
+        {UIElements.flingMurdererBagToggle,  flingMurdererWhenBagFull},
+        {UIElements.flingShootBagToggle,     flingShootWhenBagFull},
+        {UIElements.shootMurdererBagToggle,  shootMurdererWhenBagFull},
+        {UIElements.killAllBagToggle,        killAllWhenBagFull},
+        {UIElements.forceFieldToggle,        forceFieldEnabled},
+        {UIElements.auraToggle,              auraEnabled},
+        {UIElements.killEffectToggle,        killEffectEnabled},
+        {UIElements.chinaHatToggle,          chinaHatEnabled},
+        {UIElements.headlessToggle,          headlessEnabled},
+        {UIElements.korbloxToggle,           korbloxEnabled},
+        {UIElements.rtxToggle,               shadersenabled},
+        {UIElements.skyToggle,               skyEnabled},
+        {UIElements.weatherToggle,           weatherEnabled},
+        {UIElements.weatherIntensitySlider,  weatherIntensity},
+        {UIElements.crosshairToggle,         crosshairEnabled},
+        {UIElements.toolSpinToggle,          toolSpinEnabled},
+        {UIElements.toolSpinSlider,          toolSpinSpeed},
+        {UIElements.forceFieldToolsToggle,   forceFieldToolsEnabled},
+        {UIElements.texturesToggle,          texturesEnabled},
+        {UIElements.lightingToggle,          lightingEnabled},
+        {UIElements.ambientToggle,           ambientEnabled},
+        {UIElements.timeToggle,              timeEnabled},
+        {UIElements.timeSlider,              timeValue},
+        {UIElements.ccToggle,                ccEnabled},
+        {UIElements.watermarkToggle,         watermarkEnabled},
+        {UIElements.allESPToggle,            allESPEnabled},
+        {UIElements.espMurdererToggle,       ESP_SETTINGS.Murderer},
+        {UIElements.espSheriffToggle,        ESP_SETTINGS.Sheriff},
+        {UIElements.espInnocentToggle,       ESP_SETTINGS.Innocent},
+        {UIElements.espHeroToggle,           ESP_SETTINGS.Hero},
+        {UIElements.nameMurdererToggle,      NAME_ESP_SETTINGS.Murderer},
+        {UIElements.nameSheriffToggle,       NAME_ESP_SETTINGS.Sheriff},
+        {UIElements.nameInnocentToggle,      NAME_ESP_SETTINGS.Innocent},
+        {UIElements.nameHeroToggle,          NAME_ESP_SETTINGS.Hero},
+        {UIElements.aimbotToggle,            aimbotEnabled},
+        {UIElements.wallCheckToggle,         wallCheckEnabled},
+        {UIElements.fovCircleToggle,         fovEnabled_aim},
+        {UIElements.danceToggle,             danceEnabled},
     }
     for _, item in ipairs(syncList) do
         local element, value=item[1], item[2]
@@ -2771,10 +2866,11 @@ local function loadState()
         danceEnabled=true; if data.selectedDanceId then selectedDanceId=data.selectedDanceId end; task.spawn(playDance)
     end
 
-    -- sync UI หลัง apply ทั้งหมด
+
 task.spawn(function()
-    task.wait(2) -- รอ UI โหลดเสร็จสมบูรณ์ก่อน
-    for i = 1, 3 do -- ลอง sync 3 รอบ กันกรณี WindUI ยังไม่พร้อม
+    task.wait(2)
+    getgenv().UIElements = UIElements
+    for i = 1, 3 do
         syncUI()
         task.wait(0.5)
     end
@@ -2785,10 +2881,11 @@ end
 
 -- โหลดตอนเริ่ม รอ character พร้อม
 task.spawn(function()
-    task.wait(3) -- รอนานขึ้นให้ WindUI โหลด elements ทั้งหมดก่อน
+    task.wait(3)
     if not p.Character then p.CharacterAdded:Wait() end
     p.Character:WaitForChild('HumanoidRootPart', 10)
     task.wait(1)
+    getgenv().UIElements = UIElements
     pcall(loadState)
 end)
 
