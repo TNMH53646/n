@@ -1,4 +1,5 @@
 -- ป้องกันรันซ้ำ + ทำลาย UI เดิมก่อน
+-- ปิด instance เดิมทั้งหมด
 if _G.BlackCrownX_Window then
     pcall(function() _G.BlackCrownX_Window:Destroy() end)
     _G.BlackCrownX_Window = nil
@@ -7,6 +8,14 @@ if _G.BlackCrownX_Library then
     pcall(function() _G.BlackCrownX_Library:Destroy() end)
     _G.BlackCrownX_Library = nil
 end
+
+-- หยุด loop เดิมทั้งหมด
+if _G.BlackCrownX_Running then
+    _G.BlackCrownX_Running = false
+    task.wait(0.2)
+end
+_G.BlackCrownX_Running = true
+local BCX_Running = _G.BlackCrownX_Running  -- local reference สำหรับ loop
 
 p = game.Players.LocalPlayer
 ps = game:GetService('Players')
@@ -28,6 +37,12 @@ ROLE_COLORS = {
 }
 
 UIElements = {}
+notifyEnabled = true
+local function Notify(tbl)
+    if notifyEnabled and Library then
+        Library:Notify(tbl)   -- ✅
+    end
+end
 getgenv().UIElements = UIElements  -- export ออก global
 isafEnabled = false
 isagbEnabled = false
@@ -87,13 +102,16 @@ ProximityService.PromptShown:Connect(function(prompt)
     prompt.HoldDuration = 0
 end)
 
-success, Library = pcall(function()
+local WINDOW_ICON_ID      = "crown"  -- ใช้ชื่อ lucide แทนสำหรับ Window title
+local OPEN_BUTTON_ICON_ID = "rbxassetid://122824841507202"  -- ใช้ asset ID สำหรับปุ่มเปิด
+
+local success, Library = pcall(function()
     return loadstring(game:HttpGet('https://github.com/Footagesus/WindUI/releases/latest/download/main.lua'))()
 end)
 if not success then return end
 
 Library:AddTheme({
-    Name = 'BlackCrown',
+    Name        = 'BlackCrown',
     Accent      = Color3.fromHex('#1a1a1a'),
     Background  = Color3.fromHex('#0a0a0a'),
     Outline     = Color3.fromHex('#333333'),
@@ -102,13 +120,327 @@ Library:AddTheme({
     Button      = Color3.fromHex('#22CE00'),
     Icon        = Color3.fromHex('#aaaaaa'),
 })
+local function safeCall(fn, state)
+    if fn then
+        local ok, err = pcall(fn, state)
+        if not ok then
+            print('QAB Error:', err)
+        end
+    end
+end
+-- ============================================================
+-- QUICK ACTION BUTTON SYSTEM
+-- ============================================================
+local QuickButtons = {}
+local QuickButtonGui = nil
+local quickButtonsLocked = false
 
-Window = Library:CreateWindow({
-    Title = 'BlackCrown-X',
-    Icon = 'door-open',
-    Folder = 'BlackCrownX',
+local QUICK_FUNCTIONS = {
+    ['AutoFarm']       = function(state) isFarmingCoins = state end,
+    ['ESP ทั้งหมด']    = function(state)
+        ESP_SETTINGS.Murderer = state
+        ESP_SETTINGS.Sheriff  = state
+        ESP_SETTINGS.Innocent = state
+        ESP_SETTINGS.Hero     = state
+    end,
+    ['Tween Tracking'] = function(state)
+        if UIElements.tweenToggle and UIElements.tweenToggle.SetValue then
+            UIElements.tweenToggle:SetValue(state)
+        end
+        isTweeningRelative = state
+    end,
+    ['AutoShoot']      = function(state) autoShootEnabled = state end,
+    ['VoidHide']       = function(state)
+        VoidHideSettings.Enabled = state
+        if state then InitializeVoidHide() end
+    end,
+    ['Fling Murderer'] = function(_)
+        local ok, data = pcall(function() return GetPlayerData:InvokeServer() end)
+        if ok and data then
+            for _, plr in pairs(ps:GetPlayers()) do
+                if plr ~= p and plr:GetAttribute('Alive') then
+                    local d = data[plr.Name]
+                    if d and d.Role == 'Murderer' then doFling(plr, 'Murderer'); return end
+                end
+            end
+        end
+    end,
+    ['Magic Bullet']   = function(state) magicBulletEnabled = state end,
+['Noclip'] = function(state)
+    noclipEnabled = state
+    if state then
+        if not noclipSteppedConn then
+            noclipSteppedConn = RunService.Stepped:Connect(function()
+                if noclipEnabled and p.Character then
+                    for _, part in pairs(p.Character:GetDescendants()) do
+                        if part:IsA('BasePart') then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        if noclipSteppedConn then
+            noclipSteppedConn:Disconnect()
+            noclipSteppedConn = nil
+        end
+        task.wait(0.1)
+        if p.Character then
+            for _, part in pairs(p.Character:GetDescendants()) do
+                if part:IsA('BasePart') then
+                    -- คืนค่า default ของแต่ละ part
+                    pcall(function()
+                        part.CanCollide = true
+                    end)
+                end
+            end
+            -- force physics reset
+            local hrp = p.Character:FindFirstChild('HumanoidRootPart')
+            local hum = p.Character:FindFirstChild('Humanoid')
+            if hrp and hum then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end
+    end
+end,
+}
+
+local function saveQuickButtons()
+    pcall(function()
+        local data = {}
+        for _, btn in ipairs(QuickButtons) do
+            if btn.Frame and btn.Frame.Parent then
+                table.insert(data, {
+                    func  = btn.funcName,
+                    x     = btn.Frame.Position.X.Offset,
+                    y     = btn.Frame.Position.Y.Offset,
+                    size  = btn.Frame.Size.X.Offset,
+                    state = btn.state,
+                })
+            end
+        end
+        writefile('BlackCrownX/quickbuttons.json', HttpService:JSONEncode(data))
+    end)
+end
+
+local function createQuickButton(funcName, posX, posY, size, initState)
+    posX  = posX  or 100
+    posY  = posY  or 100
+    size  = size  or 60
+    initState = initState or false
+
+    if not QuickButtonGui then
+        QuickButtonGui = Instance.new('ScreenGui')
+        QuickButtonGui.Name = 'BCX_QuickButtons'
+        QuickButtonGui.ResetOnSpawn = false
+        QuickButtonGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        QuickButtonGui.DisplayOrder = 999
+        pcall(function() QuickButtonGui.Parent = game:GetService('CoreGui') end)
+        if not QuickButtonGui.Parent then
+            QuickButtonGui.Parent = p.PlayerGui
+        end
+    end
+
+    local btnState = initState
+    local btnData  = { funcName = funcName, state = btnState }
+
+    -- Container
+    local frame = Instance.new('Frame')
+    frame.Name = 'QB_' .. funcName
+    frame.Size = UDim2.fromOffset(size, size)
+    frame.Position = UDim2.fromOffset(posX, posY)
+    frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(40,40,40)
+    frame.BackgroundTransparency = 0.15
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Parent = QuickButtonGui
+
+    local corner = Instance.new('UICorner')
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = frame
+
+    local stroke = Instance.new('UIStroke')
+    stroke.Color = Color3.fromRGB(255,255,255)
+    stroke.Transparency = 0.8
+    stroke.Thickness = 1
+    stroke.Parent = frame
+
+    -- Label
+    local label = Instance.new('TextLabel')
+    label.Size = UDim2.new(1, 0, 0.7, 0)
+    label.Position = UDim2.new(0, 0, 0.1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = funcName
+    label.TextColor3 = Color3.fromRGB(255,255,255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = frame
+
+    -- State dot
+    local dot = Instance.new('Frame')
+    dot.Size = UDim2.fromOffset(8, 8)
+    dot.Position = UDim2.new(1,-12, 0, 4)
+    dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(150,150,150)
+    dot.BorderSizePixel = 0
+    dot.Parent = frame
+    Instance.new('UICorner', dot).CornerRadius = UDim.new(1, 0)
+
+    -- Drag
+local dragging, dragStart, startPos = false, nil, nil
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragStart = input.Position
+        startPos  = frame.Position
+        dragging  = false
+        tapStart  = tick()
+    end
+end)
+frame.InputChanged:Connect(function(input)
+    if quickButtonsLocked then return end
+    if (input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch) and startPos then
+        -- ต้องกดค้างก่อนถึงจะลากได้
+        if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        and not (input.UserInputType == Enum.UserInputType.Touch) then
+            dragging = false
+            return
+        end
+        local delta = input.Position - dragStart
+        if delta.Magnitude > 8 then
+            dragging = true
+            frame.Position = UDim2.fromOffset(
+                startPos.X.Offset + delta.X,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+    frame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if dragging then
+                dragging = false
+                saveQuickButtons()
+            end
+        end
+    end)
+
+    -- Tap/Click = toggle
+    local tapStart = 0
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            tapStart = tick()
+        end
+    end)
+
+frame.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if dragging then
+            dragging = false
+            startPos = nil
+            saveQuickButtons()
+        else
+            -- tap = toggle
+            btnState = not btnState
+            btnData.state = btnState
+            frame.BackgroundColor3 = btnState
+                and Color3.fromRGB(0,200,80)
+                or  Color3.fromRGB(40,40,40)
+            dot.BackgroundColor3 = btnState
+                and Color3.fromRGB(0,255,100)
+                or  Color3.fromRGB(150,150,150)
+            local fn = QUICK_FUNCTIONS[funcName]
+            safeCall(fn, btnState)
+                if fn then pcall(fn, btnState) end
+            saveQuickButtons()
+        end
+        dragging = false
+        startPos = nil
+    end
+end)
+
+    btnData.Frame = frame
+    table.insert(QuickButtons, btnData)
+    return btnData
+end
+
+local function removeAllQuickButtons()
+    for _, btn in ipairs(QuickButtons) do
+        pcall(function() btn.Frame:Destroy() end)
+    end
+    QuickButtons = {}
+    saveQuickButtons()
+end
+
+local function removeQuickButton(funcName)
+    for i, btn in ipairs(QuickButtons) do
+        if btn.funcName == funcName then
+            pcall(function() btn.Frame:Destroy() end)
+            table.remove(QuickButtons, i)
+            saveQuickButtons()
+            return
+        end
+    end
+end
+
+local function loadQuickButtons()
+    pcall(function()
+        if not isfile('BlackCrownX/quickbuttons.json') then return end
+        local raw = readfile('BlackCrownX/quickbuttons.json')
+        if not raw or #raw < 3 then return end
+        local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if not ok or type(data) ~= 'table' then return end
+
+        -- ลบปุ่มเก่าออกก่อน (กันซ้ำ)
+        for _, btn in ipairs(QuickButtons) do
+            pcall(function() btn.Frame:Destroy() end)
+        end
+        QuickButtons = {}
+
+        for _, d in ipairs(data) do
+            if d.func and QUICK_FUNCTIONS[d.func] then
+                -- โหลดตำแหน่ง ขนาด และ state เดิม
+                local btn = createQuickButton(
+                    d.func,
+                    d.x or 100,
+                    d.y or 100,
+                    d.size or 60,
+                    d.state or false
+                )
+                -- apply state กลับด้วย
+                if d.state and QUICK_FUNCTIONS[d.func] then
+                    pcall(QUICK_FUNCTIONS[d.func], d.state)
+                end
+            end
+        end
+    end)
+end
+
+local Window = Library:CreateWindow({
+    Title     = 'BlackCrown-X',
+    Icon      = WINDOW_ICON_ID, -- ใส่ ID ไอคอนหน้าต่างหลักที่นี่
+    Folder    = 'BlackCrownX',
     ToggleKey = Enum.KeyCode.LeftAlt,
 })
+
+Window:EditOpenButton({
+    Title           = "BlackCrownX",
+    Icon            = OPEN_BUTTON_ICON_ID, -- ใส่ ID ไอคอนปุ่มเปิด-ปิดที่นี่
+    CornerRadius    = UDim.new(0, 16),
+    StrokeThickness = 2,
+    Color           = ColorSequence.new(
+        Color3.fromHex("FF0F7B"), 
+        Color3.fromHex("F89B29")
+    ),
+    OnlyMobile      = false,
+    Enabled         = true,
+    Draggable       = true,
+})
+
 Library:SetTheme('BlackCrown')
 _G.BlackCrownX_Library = Library
 _G.BlackCrownX_Window = Window
@@ -118,7 +450,7 @@ getgenv().BCX_UIElements = UIElements  -- backup reference
 -- COMBAT TAB
 -- ============================================================
 MainTab = Window:Tab({ Title = 'Combat', Icon = 'swords' })
-MainTab:Section({ Title = 'ฟังก์ชันฆาตกร' })
+MainTab:Section({ Title = 'ฟังก์ชันฆาตกร', Icon = 'knife' })
 
 autoKillAllEnabled = false
 UIElements.autoKillAllToggle = MainTab:Toggle({
@@ -141,7 +473,7 @@ MainTab:Button({
             b = p.Backpack:FindFirstChild('Knife')
             if b then b.Parent = a
             else
-                Library:Notify({ Title='No Knife', Desc='คุณต้องเป็นฆาตกรก่อน!', Duration=3 })
+                Notify({ Title='No Knife', Desc='คุณต้องเป็นฆาตกรก่อน!', Duration=3 })
                 return
             end
         end
@@ -155,7 +487,7 @@ MainTab:Button({
                 task.wait(0.05)
             end
         end
-        Library:Notify({ Title='Kill All', Desc='พยายามสังหารผู้เล่นทั้งหมดแล้ว', Duration=2 })
+        Notify({ Title='Kill All', Desc='พยายามสังหารผู้เล่นทั้งหมดแล้ว', Duration=2 })
     end,
 })
 
@@ -178,12 +510,12 @@ end
 
 local function killSelectedPlayer()
     if selectedPlayerToKill == 'None' or selectedPlayerToKill == 'No players' then
-        Library:Notify({ Title='No Player Selected', Desc='กรุณาเลือกผู้เล่นจาก Dropdown ก่อน', Duration=3 })
+        Notify({ Title='No Player Selected', Desc='กรุณาเลือกผู้เล่นจาก Dropdown ก่อน', Duration=3 })
         return
     end
     local a = ps:FindFirstChild(selectedPlayerToKill)
     if not a or not a.Character or not a.Character:FindFirstChild('Head') then
-        Library:Notify({ Title='Invalid Target', Desc='ไม่พบผู้เล่น หรือผู้เล่นเสียชีวิตแล้ว', Duration=3 })
+        Notify({ Title='Invalid Target', Desc='ไม่พบผู้เล่น หรือผู้เล่นเสียชีวิตแล้ว', Duration=3 })
         return
     end
     if not p then return end
@@ -196,7 +528,7 @@ local function killSelectedPlayer()
             d.Parent = b
         else
             if c then
-                Library:Notify({ Title='Waiting for Knife', Desc='รอมีดปรากฏ...', Duration=2 })
+                Notify({ Title='Waiting for Knife', Desc='รอมีดปรากฏ...', Duration=2 })
                 if waitingForKnifeLoop then waitingForKnifeLoop = false end
                 waitingForKnifeLoop = true
                 task.spawn(function()
@@ -205,7 +537,7 @@ local function killSelectedPlayer()
                         task.wait(0.1)
                         if RolesPlrName['Murderer'] ~= p then
                             waitingForKnifeLoop = false
-                            Library:Notify({ Title='Role Changed', Desc='ไม่ใช่ฆาตกรแล้ว หยุดรอ', Duration=2 })
+                            Notify({ Title='Role Changed', Desc='ไม่ใช่ฆาตกรแล้ว หยุดรอ', Duration=2 })
                             return
                         end
                         local f = p.Character
@@ -219,7 +551,7 @@ local function killSelectedPlayer()
                                     g.Events.KnifeStabbed:FireServer()
                                     g.Events.HandleTouched:FireServer(h.Character.Head)
                                 end)
-                                Library:Notify({ Title='Kill Selected', Desc='สังหาร '..selectedPlayerToKill..' แล้ว', Duration=2 })
+                                Notify({ Title='Kill Selected', Desc='สังหาร '..selectedPlayerToKill..' แล้ว', Duration=2 })
                             end
                             waitingForKnifeLoop = false
                             return
@@ -228,7 +560,7 @@ local function killSelectedPlayer()
                 end)
                 return
             else
-                Library:Notify({ Title='No Knife', Desc='คุณต้องเป็นฆาตกรก่อน!', Duration=3 })
+                Notify({ Title='No Knife', Desc='คุณต้องเป็นฆาตกรก่อน!', Duration=3 })
                 return
             end
         end
@@ -237,7 +569,7 @@ local function killSelectedPlayer()
         d.Events.KnifeStabbed:FireServer()
         d.Events.HandleTouched:FireServer(a.Character.Head)
     end)
-    Library:Notify({ Title='Kill Selected', Desc='พยายามสังหาร '..selectedPlayerToKill, Duration=2 })
+    Notify({ Title='Kill Selected', Desc='พยายามสังหาร '..selectedPlayerToKill, Duration=2 })
 end
 
 local function refreshPlayerDropdown()
@@ -281,7 +613,7 @@ task.defer(function()
 end)
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         task.wait(3)
         refreshPlayerDropdown()
     end
@@ -289,7 +621,7 @@ end)
 
 -- loop auto kill selected
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         task.wait(0.1)
         if autoKillSelectedEnabled
         and selectedPlayerToKill ~= 'None'
@@ -301,7 +633,7 @@ end)
 
 -- Auto Kill All loop
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         task.wait(0.5)
         if autoKillAllEnabled and p and p.Character then
             local a = p.Character:FindFirstChild('Knife') or p.Backpack:FindFirstChild('Knife')
@@ -324,7 +656,7 @@ end)
 -- ============================================================
 -- SHERIFF SECTION
 -- ============================================================
-MainTab:Section({ Title = 'ฟังก์ชัน Sheriff' })
+MainTab:Section({ Title = 'ฟังก์ชัน Sheriff', Icon = 'shield' })
 
 autoShootEnabled = false
 predictionMultiplier = 2.5
@@ -377,15 +709,33 @@ end
 local function magicBulletShoot(a)
     if not a then return end
     local b = RolesPlrName['Murderer']
-    if not b or not b.Character or not b.Character:FindFirstChild('HumanoidRootPart') then return end
-    local c, d = b.Character.HumanoidRootPart, getPing()
-    local e, f = (d/1000)*predictionMultiplier, c.Velocity
+    -- เพิ่มการเช็คให้ครบ
+    if not b or not b.Character then return end
+    local hrp = b.Character:FindFirstChild('HumanoidRootPart')
+    if not hrp then
+        -- ลอง find ใหม่
+        hrp = b.Character:FindFirstChildOfClass('BasePart')
+        if not hrp then return end
+    end
+    local d = getPing()
+    local e = (d/1000) * predictionMultiplier
+    local f = hrp.Velocity
     local g = f.Magnitude
-    local h = g < 1 and (c.Position + c.CFrame.LookVector*2) or (c.Position + f*((e)*(1+g/50)))
-    local i = c.Position - c.CFrame.LookVector
+    local h
+    if g < 1 then
+        h = hrp.Position + hrp.CFrame.LookVector * 2
+    else
+        h = hrp.Position + f * (e * (1 + g/50))
+    end
+    local i = hrp.Position - hrp.CFrame.LookVector
     local n = a:FindFirstChild('Shoot')
     if n and n:IsA('RemoteEvent') then
-        n:FireServer(CFrame.new(i.X,i.Y,i.Z), CFrame.new(h.X,h.Y,h.Z))
+        pcall(function()
+            n:FireServer(
+                CFrame.new(i.X, i.Y, i.Z),
+                CFrame.new(h.X, h.Y, h.Z)
+            )
+        end)
     end
 end
 
@@ -468,20 +818,20 @@ UIElements.autoShootToggle = MainTab:Toggle({
 getgenv().UIElements = UIElements
 
 task.spawn(function()
-    while true do task.wait(0.1); if autoShootEnabled then autoShootMurderer() end end
+    while true and _G.BlackCrownX_Running do task.wait(0.1); if autoShootEnabled then autoShootMurderer() end end
 end)
 
 UIElements.magicBulletToggle = MainTab:Toggle({
     Title = 'Magic Bullet', Desc = 'ยิงจากตำแหน่งฆาตกรพร้อม prediction', Value = false,
     Callback = function(a)
         magicBulletEnabled = a
-        if a then enableMagicBullet(); Library:Notify({ Title='Magic Bullet Enabled', Desc='GunClient disabled', Duration=3 })
-        else disableMagicBullet(); Library:Notify({ Title='Magic Bullet Disabled', Desc='GunClient restored', Duration=2 }) end
+        if a then enableMagicBullet(); Notify({ Title='Magic Bullet Enabled', Desc='GunClient disabled', Duration=3 })
+        else disableMagicBullet(); Notify({ Title='Magic Bullet Disabled', Desc='GunClient restored', Duration=2 }) end
     end,
 })
 getgenv().UIElements = UIElements
 
-MainTab:Section({ Title = 'ฟังก์ชันประชาชน' })
+MainTab:Section({ Title = 'ฟังก์ชันผู้บริสุทธิ์',Icon = 'ShieldCheck' })
 
 UIElements.autoGrabGunToggle = MainTab:Toggle({
     Title = 'Auto Grab Gun', Desc = 'หยิบปืนอัตโนมัติเมื่อ Sheriff เสียชีวิต', Value = false,
@@ -492,7 +842,7 @@ getgenv().UIElements = UIElements
 -- ============================================================
 -- LOCAL PLAYER TAB
 -- ============================================================
-LocalPlayerTab = Window:Tab({ Title = 'LocalPlayer', Icon = 'star' })
+LocalPlayerTab = Window:Tab({ Title = 'LocalPlayer', Icon = 'user' })
 
 UIElements.antiFlingToggle = LocalPlayerTab:Toggle({
     Title = 'Anti-Fling', Desc = 'ป้องกันผู้เล่นอื่น Fling คุณ', Value = false,
@@ -500,7 +850,51 @@ UIElements.antiFlingToggle = LocalPlayerTab:Toggle({
 })
 getgenv().UIElements = UIElements
 
-LocalPlayerTab:Section({ Title = 'Void Hide' })
+noclipEnabled = false
+noclipSteppedConn = nil
+
+UIElements.noclipToggle = LocalPlayerTab:Toggle({
+    Title = 'Noclip',
+    Desc = 'ลอดผ่านกำแพงได้',
+    Value = false,
+    Callback = function(a)
+        noclipEnabled = a
+        if a then
+            if not noclipSteppedConn then
+                noclipSteppedConn = RunService.Stepped:Connect(function()
+                    if noclipEnabled and p.Character then
+                        for _, part in pairs(p.Character:GetDescendants()) do
+                            if part:IsA('BasePart') then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+            end
+        else
+            if noclipSteppedConn then
+                noclipSteppedConn:Disconnect()
+                -- reset camera
+                pcall(function()
+                    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+                    workspace.CurrentCamera.CameraSubject = p.Character:FindFirstChild('Humanoid')
+                end)
+                noclipSteppedConn = nil
+            end
+            -- คืน collision ให้ตัวละคร
+            if p.Character then
+                for _, part in pairs(p.Character:GetDescendants()) do
+                    if part:IsA('BasePart') then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end
+    end,
+})
+getgenv().UIElements = UIElements
+
+LocalPlayerTab:Section({ Title = 'Void Hide',Icon = 'ghost' })
 
 VoidHideSettings = {
     Enabled=false, UpdateRate=0.1, VoidChangeRate=0.06, VoidHeight=9e9-1000,
@@ -648,7 +1042,7 @@ UIElements.voidHideToggle = LocalPlayerTab:Toggle({
                 end)
             end
             if showVoidPositionEnabled then createVoidPositionMarker() end
-            Library:Notify({ Title='Void Hide Enabled', Desc='คุณอยู่ใน Void ในสายตา server', Duration=3 })
+            Notify({ Title='Void Hide Enabled', Desc='คุณอยู่ใน Void ในสายตา server', Duration=3 })
         else
             if VoidHideConnection then VoidHideConnection:Disconnect(); VoidHideConnection=nil end
             VoidHideInVoid=false; VoidHideCurrentVoidPosition=nil
@@ -658,7 +1052,7 @@ UIElements.voidHideToggle = LocalPlayerTab:Toggle({
             local b = p.Character
             local c = b and b:FindFirstChild('HumanoidRootPart')
             if c and VoidHideSpoofedProperties[c] then VoidHideSpoofedProperties[c]['CFrame']=nil end
-            Library:Notify({ Title='Void Hide Disabled', Desc='คืนตำแหน่งปกติแล้ว', Duration=2 })
+            Notify({ Title='Void Hide Disabled', Desc='คืนตำแหน่งปกติแล้ว', Duration=2 })
         end
     end,
 })
@@ -725,7 +1119,7 @@ p.CharacterAdded:Connect(function(a)
     end
 end)
 
-LocalPlayerTab:Section({ Title = 'Character Modifiers' })
+LocalPlayerTab:Section({ Title = 'Character Modifiers', Icon = 'person-standing' })
 
 walkSpeedEnabled = false
 jumpPowerEnabled = false
@@ -746,7 +1140,7 @@ local function applyJumpPower()
 end
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         RunService.Heartbeat:Wait()
         if walkSpeedEnabled then applyWalkSpeed() end
         if jumpPowerEnabled then applyJumpPower() end
@@ -807,7 +1201,8 @@ local function applyFOV()
     if fovEnabled then local a=workspace.CurrentCamera; if a then a.FieldOfView=customFOV end end
 end
 
-task.spawn(function() while true do RunService.Heartbeat:Wait(); if fovEnabled then applyFOV() end end end)
+task.spawn(function()
+    while true and _G.BlackCrownX_Running do RunService.Heartbeat:Wait(); if fovEnabled then applyFOV() end end end)
 
 UIElements.fovToggle = LocalPlayerTab:Toggle({
     Title='Custom FOV', Desc='เปิดใช้งาน FOV แบบกำหนดเอง', Value=false,
@@ -824,7 +1219,7 @@ getgenv().UIElements = UIElements
 -- ============================================================
 -- AUTOFARM TAB
 -- ============================================================
-AutoFarmTab = Window:Tab({ Title='AutoFarm', Icon='star' })
+AutoFarmTab = Window:Tab({ Title='AutoFarm', Icon='coins' })
 AutoFarmInfo = AutoFarmTab:Paragraph({ Title='สถิติ AutoFarm', Desc='สถานะ: ปิด | เหรียญ: 0/0' })
 
 local farmStats = { Status='Disabled', Coins='0/0', Time='00:00:00', CPH='0' }
@@ -874,7 +1269,7 @@ p.CharacterAdded:Connect(function(a)
 end)
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         task.wait(1)
         if isFarmingCoins then
             local a = os.time() - farmStartTime
@@ -979,7 +1374,7 @@ lastBagCheckTime = 0
 bagFullActionInProgress = false
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         task.wait(0.5)
         if isFarmingCoins and not bagFullActionInProgress and allCoinsCollected then
             if isPlayerDead() then continue end
@@ -990,7 +1385,7 @@ task.spawn(function()
             if farmingActive then stopFarming() end
             if a == 'Innocent' then
                 if resetWhenBagFull then
-                    Library:Notify({ Title='Bag Full', Desc='กำลังรีเซ็ตตัวละคร...', Duration=2 })
+                    Notify({ Title='Bag Full', Desc='กำลังรีเซ็ตตัวละคร...', Duration=2 })
                     task.wait(0.5); restoreNormalGravity()
                     if p.Character and p.Character:FindFirstChild('Humanoid') then p.Character.Humanoid.Health=0 end
                     task.wait(6); bagFullActionInProgress=false; continue
@@ -1001,7 +1396,7 @@ task.spawn(function()
                 else bagFullActionInProgress=false end
             elseif a == 'Murderer' then
                 if killAllWhenBagFull then
-                    Library:Notify({ Title='Bag Full', Desc='กำลังสังหารทุกคน...', Duration=2 })
+                    Notify({ Title='Bag Full', Desc='กำลังสังหารทุกคน...', Duration=2 })
                     for b, c in pairs(ps:GetPlayers()) do
                         if c ~= p and c.Character and c.Character:FindFirstChild('Humanoid') and c.Character.Humanoid.Health > 0 then
                             local d = p.Character and p.Character:FindFirstChild('Knife') or p.Backpack and p.Backpack:FindFirstChild('Knife')
@@ -1023,7 +1418,7 @@ end)
 -- ============================================================
 -- VISUALS TAB
 -- ============================================================
-VisualsTab = Window:Tab({ Title='Visuals', Icon='star' })
+VisualsTab = Window:Tab({ Title='Visuals', Icon='sparkles' })
 VisualsTab:Section({ Title='Character Visuals' })
 
 forceFieldEnabled = false
@@ -1047,7 +1442,8 @@ local function applyForceFieldMaterial()
     end
 end
 
-task.spawn(function() while true do RunService.Heartbeat:Wait(); if forceFieldEnabled then applyForceFieldMaterial() end end end)
+task.spawn(function()
+    while true and _G.BlackCrownX_Running do RunService.Heartbeat:Wait(); if forceFieldEnabled then applyForceFieldMaterial() end end end)
 
 p.CharacterAdded:Connect(function(a)
     forceFieldOriginalColors={}; a:WaitForChild('Humanoid'); task.wait(0.1)
@@ -1058,7 +1454,7 @@ UIElements.forceFieldToggle = VisualsTab:Toggle({
     Title='Force Field Body Parts', Desc='เปลี่ยนวัสดุร่างกายทั้งหมดเป็น ForceField', Value=false,
     Callback=function(a)
         forceFieldEnabled=a
-        if a then applyForceFieldMaterial(); Library:Notify({ Title='ForceField Enabled', Desc='Body parts material set to ForceField', Duration=2 })
+        if a then applyForceFieldMaterial(); Notify({ Title='ForceField Enabled', Desc='Body parts material set to ForceField', Duration=2 })
         else
             if p.Character then
                 for b, c in pairs(p.Character:GetDescendants()) do
@@ -1070,7 +1466,7 @@ UIElements.forceFieldToggle = VisualsTab:Toggle({
                 end
             end
             forceFieldOriginalColors={}
-            Library:Notify({ Title='ForceField Disabled', Desc='คืนวัสดุตัวละครแล้ว', Duration=2 })
+            Notify({ Title='ForceField Disabled', Desc='คืนวัสดุตัวละครแล้ว', Duration=2 })
         end
     end,
 })
@@ -1225,11 +1621,11 @@ UIElements.killEffectToggle = VisualsTab:Toggle({
     Title='Kill Effect', Desc='สร้างเอฟเฟกต์ Neon Clone เมื่อสังหารผู้เล่น', Value=false,
     Callback=function(a)
         killEffectEnabled=a
-        if a then setupKillEffectMonitoring(); Library:Notify({ Title='Kill Effect Enabled', Desc='Neon Clone จะปรากฏเมื่อสังหาร', Duration=2 })
+        if a then setupKillEffectMonitoring(); Notify({ Title='Kill Effect Enabled', Desc='Neon Clone จะปรากฏเมื่อสังหาร', Duration=2 })
         else
             for b, c in pairs(killEffectConnections) do if c then c:Disconnect() end end
             killEffectConnections={}
-            Library:Notify({ Title='Kill Effect Disabled', Desc='หยุดเอฟเฟกต์การสังหารแล้ว', Duration=2 })
+            Notify({ Title='Kill Effect Disabled', Desc='หยุดเอฟเฟกต์การสังหารแล้ว', Duration=2 })
         end
     end,
 })
@@ -1460,7 +1856,7 @@ UIElements.weatherIntensitySlider = VisualsTab:Slider({
 getgenv().UIElements = UIElements
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         RunService.Heartbeat:Wait()
         if weatherEnabled and weatherPart then
             local a=workspace.CurrentCamera; local b=p.Character
@@ -1512,7 +1908,7 @@ local function rotatePoint(a, b, c)
 end
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         RunService.RenderStepped:Wait()
         if crosshairEnabled and #crosshairLines >= 4 then
             local a=UserInputService:GetMouseLocation()
@@ -1609,7 +2005,8 @@ local function restoreToolMaterial()
     end
 end
 
-task.spawn(function() while true do RunService.Heartbeat:Wait(); if forceFieldToolsEnabled then applyForceFieldToTool() end end end)
+task.spawn(function()
+    while true and _G.BlackCrownX_Running do RunService.Heartbeat:Wait(); if forceFieldToolsEnabled then applyForceFieldToTool() end end end)
 
 local function setupForceFieldToolHandlers(a)
     if not a then return end
@@ -1631,8 +2028,8 @@ UIElements.forceFieldToolsToggle = VisualsTab:Toggle({
     Title='Force Field Tools', Desc='เปลี่ยนวัสดุอาวุธเป็น ForceField', Value=false,
     Callback=function(a)
         forceFieldToolsEnabled=a
-        if a then applyForceFieldToTool(); Library:Notify({ Title='ForceField Tools Enabled', Desc='Tool parts material set to ForceField', Duration=2 })
-        else restoreToolMaterial(); forceFieldToolsOriginalData={}; Library:Notify({ Title='ForceField Tools Disabled', Desc='คืนวัสดุอาวุธแล้ว', Duration=2 }) end
+        if a then applyForceFieldToTool(); Notify({ Title='ForceField Tools Enabled', Desc='Tool parts material set to ForceField', Duration=2 })
+        else restoreToolMaterial(); forceFieldToolsOriginalData={}; Notify({ Title='ForceField Tools Disabled', Desc='คืนวัสดุอาวุธแล้ว', Duration=2 }) end
     end,
 })
 getgenv().UIElements = UIElements
@@ -1756,7 +2153,7 @@ VisualsTab:Slider({ Title='Contrast',Desc='ปรับ Contrast',Step=1,Value={
 VisualsTab:Slider({ Title='Brightness',Desc='ปรับความสว่าง',Step=1,Value={Min=0,Max=1,Default=0},Callback=function(a) ccBrightness=a; if ccEffect then ccEffect.Brightness=a end end })
 
 task.spawn(function()
-    while true do RunService.Heartbeat:Wait()
+    while true and _G.BlackCrownX_Running do RunService.Heartbeat:Wait()
         if lightingEnabled then
             if ambientEnabled then lighting.Ambient=ambientColor end
             if timeEnabled then lighting.ClockTime=timeValue end
@@ -2035,7 +2432,6 @@ ESPColorSection:Colorpicker({ Title='Hero Color', Default=Color3.fromRGB(255,255
 -- ============================================================
 TPTab = Window:Tab({ Title='Teleport', Icon='map-pin' })
 
-local selectedTPName = ''
 local tweenDirection = 'Behind'
 local tweenDistance = 5
 local isTweeningRelative = false
@@ -2080,7 +2476,13 @@ local function removeBodyVelocityTP(hrp) if hrp then local bv=hrp:FindFirstChild
 
 local TPSection=TPTab:Section({ Title='วาร์ปหาผู้เล่น' })
 local tpPlayerDropdown
-tpPlayerDropdown=TPSection:Dropdown({ Title='Select Target Player', Values=getTPPlayerList(), Value='', Callback=function(v) selectedTPName=v end })
+local selectedTeleportName = ''  -- แยกจาก selectedTPName ที่ Tween ใช้
+tpPlayerDropdown = TPSection:Dropdown({
+    Title = 'Select Target Player',
+    Values = getTPPlayerList(),
+    Value = '',
+    Callback = function(v) selectedTeleportName = v end,
+})
 TPSection:Button({ Title='Refresh Player List', Callback=function()
     local list=getTPPlayerList(); if tpPlayerDropdown and tpPlayerDropdown.Refresh then pcall(function() tpPlayerDropdown:Refresh(list) end) end
 end })
@@ -2103,6 +2505,63 @@ TrackSection:Dropdown({ Title='Tween Direction', Values={'Behind','Front','Above
 TrackSection:Input({ Title='Tween Distance', Value='5', Placeholder='เช่น 3, 5, 10...', Callback=function(val) local num=tonumber(val); if num then tweenDistance=num end end })
 TrackSection:Toggle({ Title='Auto Look at Target', Value=false, Callback=function(state) isAutoLooking=state end })
 TrackSection:Toggle({ Title='Create Platform Under Feet', Value=true, Callback=function(state) createPlatformEnabled=state; if not state and tempPlatform then tempPlatform:Destroy(); tempPlatform=nil end end })
+local autoCopyDanceEnabled = false
+
+TrackSection:Toggle({
+    Title = 'Auto Copy Animation',
+    Desc = 'คัดลอกท่าทางจากผู้เล่นเป้าหมายอัตโนมัติตลอดเวลา',
+    Value = false,
+    Callback = function(state)
+        autoCopyDanceEnabled = state
+        
+        if autoCopyDanceEnabled then
+            task.spawn(function()
+                while autoCopyDanceEnabled do
+                    pcall(function()
+                        local target = ps:FindFirstChild(selectedTPName)
+                        if target and target.Character then
+                            local hum = target.Character:FindFirstChildOfClass('Humanoid')
+                            local animator = hum and hum:FindFirstChildOfClass('Animator')
+                            
+                            if animator then
+                                local tracks = animator:GetPlayingAnimationTracks()
+                                if #tracks > 0 then
+                                    -- เลือก track ที่มี Priority สูงสุด
+                                    local best = tracks[1]
+                                    for _, t in ipairs(tracks) do
+                                        if t.Priority.Value > best.Priority.Value then 
+                                            best = t 
+                                        end
+                                    end
+                                    
+                                    if best.Animation then
+                                        local animId = best.Animation.AnimationId:match('%d+')
+                                        
+                                        -- เช็คว่า ID ใหม่ไม่ซ้ำกับท่าที่กำลังเต้นอยู่ เพื่อป้องกันการรีเซ็ตท่ารัวๆ
+                                        if animId and selectedDanceId ~= animId then
+                                            selectedDanceId = animId
+                                            danceEnabled = true
+                                            
+                                            if type(stopDance) == "function" then stopDance() end
+                                            task.wait(0.1)
+                                            if type(playDance) == "function" then playDance() end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                    task.wait(0.5) -- หน่วงเวลาเช็คทุกๆ 0.5 วินาทีเพื่อไม่ให้แลค
+                end
+            end)
+        else
+            -- เมื่อปิดสวิตช์ จะสั่งให้หยุดเต้นด้วย
+            danceEnabled = false
+            if type(stopDance) == "function" then stopDance() end
+            selectedDanceId = nil
+        end
+    end,
+})
 TrackSection:Toggle({
     Title='Enable Relative Tween', Value=false,
     Callback=function(state)
@@ -2112,8 +2571,17 @@ TrackSection:Toggle({
             if tempPlatform then tempPlatform:Destroy(); tempPlatform=nil end
             if myHRP then removeBodyVelocityTP(myHRP) end; return
         end
+        -- เปิด noclip สำหรับ tween tracking
+        local tweenNoclipConn = RunService.Stepped:Connect(function()
+            if isTweeningRelative and p.Character then
+                for _, part in pairs(p.Character:GetDescendants()) do
+                    if part:IsA('BasePart') then part.CanCollide = false end
+                end
+            end
+        end)
+
         task.spawn(function()
-            while isTweeningRelative do
+            while isTweeningRelative and _G.BlackCrownX_Running do
                 local target=ps:FindFirstChild(selectedTPName)
                 local curChar=p.Character; local curHRP=curChar and curChar:FindFirstChild('HumanoidRootPart')
                 if target and target.Character and target.Character:FindFirstChild('HumanoidRootPart') and curHRP then
@@ -2121,14 +2589,36 @@ TrackSection:Toggle({
                     local targetPos=getTargetOffsetPosition(tHRP, tweenDirection, tweenDistance)
                     local finalCF
                     if isAutoLooking then
-                        local lookAt=Vector3.new(tHRP.Position.X,targetPos.Y,tHRP.Position.Z)
-                        if (lookAt-targetPos).Magnitude>0.001 then finalCF=CFrame.lookAt(targetPos,lookAt) else finalCF=CFrame.new(targetPos) end
-                    else finalCF=CFrame.new(targetPos)*(tHRP.CFrame-tHRP.CFrame.Position) end
-                    updateTweenPlatform(targetPos); applyBodyVelocityTP(curHRP, targetPos)
-                    local tw=TweenService:Create(curHRP, TweenInfo.new(0.15,Enum.EasingStyle.Linear), {CFrame=finalCF}); tw:Play()
-                else if curHRP then removeBodyVelocityTP(curHRP) end end
-                task.wait(0.15)
+                        -- แก้ปัญหา Above/Below: ใช้ตำแหน่ง horizontal ของเป้า แต่ lock Y ไว้ที่ targetPos
+                        -- เพื่อให้หันหน้าหาเป้าในระนาบ horizontal เสมอ ไม่ว่าจะอยู่ Above/Below
+                        local lookAtPos = Vector3.new(tHRP.Position.X, targetPos.Y, tHRP.Position.Z)
+                        local diff = lookAtPos - targetPos
+                        if diff.Magnitude > 0.1 then
+                            finalCF = CFrame.lookAt(targetPos, lookAtPos)
+                        else
+                            -- อยู่ตรงหัวหรือใต้เท้าพอดี: ใช้ rotation ของเป้าแทน
+                            finalCF = CFrame.new(targetPos) * (tHRP.CFrame - tHRP.CFrame.Position)
+                        end
+                    else
+                        finalCF = CFrame.new(targetPos) * (tHRP.CFrame - tHRP.CFrame.Position)
+                    end
+                    updateTweenPlatform(targetPos)
+                    applyBodyVelocityTP(curHRP, targetPos)
+                    local tw = TweenService:Create(curHRP, TweenInfo.new(0.1, Enum.EasingStyle.Linear), {CFrame=finalCF})
+                    tw:Play()
+                else
+                    if curHRP then removeBodyVelocityTP(curHRP) end
+                end
+                task.wait(0.1)
             end
+            -- ปิด noclip เมื่อหยุด tween
+            tweenNoclipConn:Disconnect()
+            if p.Character then
+                for _, part in pairs(p.Character:GetDescendants()) do
+                    if part:IsA('BasePart') then part.CanCollide = true end
+                end
+            end
+            if tempPlatform then tempPlatform:Destroy(); tempPlatform=nil end
         end)
     end,
 })
@@ -2139,7 +2629,7 @@ SafeSection:Toggle({ Title='Safe Mode (< 50% HP TP)', Value=false, Callback=func
     safeModeEnabled=state
     if safeModeEnabled then
         task.spawn(function()
-            while safeModeEnabled do
+            while safeModeEnabled and _G.BlackCrownX_Running do
                 local myChar=p.Character
                 if myChar and myChar:FindFirstChild('Humanoid') and myChar:FindFirstChild('HumanoidRootPart') then
                     local hum=myChar.Humanoid
@@ -2164,7 +2654,7 @@ end })
 -- ============================================================
 -- MISC TAB
 -- ============================================================
-MiscTab = Window:Tab({ Title='Misc', Icon='star' })
+MiscTab = Window:Tab({ Title='Misc', Icon='layout-grid' })
 
 local function findmap()
     for g, h in (game.Workspace:GetChildren()) do if h:GetAttribute('MapID') then return h end end
@@ -2204,7 +2694,7 @@ MiscTab:Button({ Title='Sheriff TP', Callback=function()
     end
 end })
 
-MiscTab:Section({ Title='ท่าเต้น' })
+MiscTab:Section({ Title='ท่าเต้น', Icon = 'music' })
 
 danceEnabled = false
 selectedDanceId = '127118661424463'
@@ -2229,6 +2719,23 @@ p.CharacterAdded:Connect(function(g) g:WaitForChild('Humanoid'); task.wait(0.5);
 
 MiscTab:Dropdown({ Title='เลือกท่าเต้น', Values={'Dance 1','Dance 2','Dance 3','Dance 4'}, Value='Dance 1',
     Callback=function(g) selectedDanceId=danceList[g] or '127118661424463'; if danceEnabled then stopDance(); task.wait(0.1); playDance() end end })
+        MiscTab:Input({
+    Title = 'Custom Animation ID',
+    Desc = 'ใส่ Animation ID เองแล้วกด Enter (ไม่ต้องใส่ rbxassetid://)',
+    Placeholder = 'เช่น 507771019',
+    Callback = function(val)
+        local id = val:match('%d+')
+        if id then
+            selectedDanceId = id
+            if danceEnabled then
+                stopDance()
+                task.wait(0.1)
+                playDance()
+            end
+            Notify({ Title = 'Animation Changed', Desc = 'ID: ' .. id, Duration = 2 })
+        end
+    end,
+})
 UIElements.danceToggle = MiscTab:Toggle({ Title='Auto Dance', Desc='เล่นท่าเต้นอัตโนมัติ', Value=false,
     Callback=function(g) danceEnabled=g; if g then playDance() else stopDance() end end })
 getgenv().UIElements = UIElements
@@ -2302,22 +2809,34 @@ local function FindPlayerByPartialName(g)
     return nil
 end
 
-MiscTab:Input({ Title='Player Search', Desc="ค้นหาชื่อผู้เล่น",
-    Callback=function(g)
-        local h=FindPlayerByPartialName(g)
-        if h then SelectedFlingTarget=h; Library:Notify({ Title='Player Found', Desc='เลือก: '..h.Name, Duration=2 })
-        else SelectedFlingTarget=nil; if g~='' then Library:Notify({ Title='Not Found', Desc='ไม่พบผู้เล่น: '..g, Duration=2 }) end end
-    end })
+-- Dropdown ของ Fling มี local state ของตัวเองแยกจาก selectedTPName
+local selectedFlingName = ''
+local flingDropdown
+flingDropdown = MiscTab:Dropdown({
+    Title = 'เลือกผู้เล่นที่จะ Fling',
+    Values = getTPPlayerList(),
+    Value = '',
+    Callback = function(v)
+        selectedFlingName = v
+        local plr = ps:FindFirstChild(v)
+        SelectedFlingTarget = plr or nil
+    end,
+})
+MiscTab:Button({ Title = 'Refresh รายชื่อ', Callback = function()
+    local list = getTPPlayerList()
+    pcall(function() flingDropdown:Refresh(list) end)
+end })
+
 
 local function doFling(target, name)
     if FlingActive then return end
     if not target or not target.Parent then
-        Library:Notify({ Title='Error', Desc='ไม่พบ '..name, Duration=3 }); return
+        Notify({ Title='Error', Desc='ไม่พบ '..name, Duration=3 }); return
     end
     FlingActive=true
     local j=UIElements.voidHideToggle and UIElements.voidHideToggle.GetValue and UIElements.voidHideToggle.GetValue() or false
     if j and UIElements.voidHideToggle.SetValue then UIElements.voidHideToggle.SetValue(false) end
-    Library:Notify({ Title='Fling Started', Desc='Flinging: '..target.Name, Duration=3 })
+    Notify({ Title='Fling Started', Desc='Flinging: '..target.Name, Duration=3 })
     task.spawn(function()
         SkidFling(target); FlingActive=false
         if j and UIElements.voidHideToggle.SetValue then task.wait(0.5); UIElements.voidHideToggle.SetValue(true) end
@@ -2346,19 +2865,19 @@ MiscTab:Button({ Title='Fling Sheriff', Callback=function()
 end })
 MiscTab:Button({ Title='Fling Selected Player', Callback=function()
     if not SelectedFlingTarget or not SelectedFlingTarget.Parent then
-        Library:Notify({ Title='Error', Desc='กรุณาเลือกผู้เล่นที่ถูกต้องก่อน!', Duration=3 }); return
+        Notify({ Title='Error', Desc='กรุณาเลือกผู้เล่นที่ถูกต้องก่อน!', Duration=3 }); return
     end
     doFling(SelectedFlingTarget, SelectedFlingTarget.Name)
 end })
 MiscTab:Button({ Title='Stop Fling', Callback=function()
-    if FlingActive then FlingActive=false; Library:Notify({ Title='Fling Stopped', Desc='หยุด Fling แล้ว', Duration=2 })
-    else Library:Notify({ Title='Info', Desc='ไม่มีการ Fling ที่กำลังทำงาน', Duration=2 }) end
+    if FlingActive then FlingActive=false; Notify({ Title='Fling Stopped', Desc='หยุด Fling แล้ว', Duration=2 })
+    else Notify({ Title='Info', Desc='ไม่มีการ Fling ที่กำลังทำงาน', Duration=2 }) end
 end })
 
 -- ============================================================
 -- SPAWNER TAB
 -- ============================================================
-SpawnerTab = Window:Tab({ Title='Spawner', Icon='star' })
+SpawnerTab = Window:Tab({ Title='Spawner', Icon='package' })
 spawnerItems = {
     {original='Harvester',custom='Harvester'},{original='Gingerscope',custom='Gingerscope'},{original='Snowcannon',custom='Snowcannon'},
     {original='Bauble',custom='Bauble'},{original='BaubleChroma',custom='BaubleChroma'},{original='Icepiercer',custom='Icepiercer'},
@@ -2397,21 +2916,82 @@ selectedSpawnerItem=nil
 
 SpawnerTab:Dropdown({ Title='เลือกไอเทม', Desc='เลือกไอเทมที่ต้องการสปอว์น', Values=itemOptions, Value=itemOptions[1] or 'Harvester', Callback=function(g) selectedSpawnerItem=g end })
 SpawnerTab:Button({ Title='Spawn Selected Item', Callback=function()
-    if not selectedSpawnerItem then Library:Notify({ Title='No Item Selected', Desc='กรุณาเลือกไอเทมก่อน!', Duration=3 }); return end
-    if spawnItem(selectedSpawnerItem) then Library:Notify({ Title='Item Spawned', Desc=selectedSpawnerItem..' added!', Duration=3 })
-    else Library:Notify({ Title='Spawn Failed', Desc='Failed to spawn '..selectedSpawnerItem, Duration=3 }) end
+    if not selectedSpawnerItem then Notify({ Title='No Item Selected', Desc='กรุณาเลือกไอเทมก่อน!', Duration=3 }); return end
+    if spawnItem(selectedSpawnerItem) then Notify({ Title='Item Spawned', Desc=selectedSpawnerItem..' added!', Duration=3 })
+    else Notify({ Title='Spawn Failed', Desc='Failed to spawn '..selectedSpawnerItem, Duration=3 }) end
 end })
 SpawnerTab:Section({ Title='สปอว์นเร็ว' })
-SpawnerTab:Button({ Title='Spawn Harvester', Callback=function() if spawnItem('Harvester') then Library:Notify({ Title='Item Spawned', Desc='เพิ่ม Harvester แล้ว!', Duration=2 }) end end })
-SpawnerTab:Button({ Title='Spawn Corrupt', Callback=function() if spawnItem('Corrupt') then Library:Notify({ Title='Item Spawned', Desc='เพิ่ม Corrupt แล้ว!', Duration=2 }) end end })
-SpawnerTab:Button({ Title='Spawn Chroma Evergun', Callback=function() if spawnItem('Chroma Evergun') then Library:Notify({ Title='Item Spawned', Desc='เพิ่ม Chroma Evergun แล้ว!', Duration=2 }) end end })
-SpawnerTab:Button({ Title='Spawn Chroma Evergreen', Callback=function() if spawnItem('Chroma Evergreen') then Library:Notify({ Title='Item Spawned', Desc='เพิ่ม Chroma Evergreen แล้ว!', Duration=2 }) end end })
+SpawnerTab:Button({ Title='Spawn Harvester', Callback=function() if spawnItem('Harvester') then Notify({ Title='Item Spawned', Desc='เพิ่ม Harvester แล้ว!', Duration=2 }) end end })
+SpawnerTab:Button({ Title='Spawn Corrupt', Callback=function() if spawnItem('Corrupt') then Notify({ Title='Item Spawned', Desc='เพิ่ม Corrupt แล้ว!', Duration=2 }) end end })
+SpawnerTab:Button({ Title='Spawn Chroma Evergun', Callback=function() if spawnItem('Chroma Evergun') then Notify({ Title='Item Spawned', Desc='เพิ่ม Chroma Evergun แล้ว!', Duration=2 }) end end })
+SpawnerTab:Button({ Title='Spawn Chroma Evergreen', Callback=function() if spawnItem('Chroma Evergreen') then Notify({ Title='Item Spawned', Desc='เพิ่ม Chroma Evergreen แล้ว!', Duration=2 }) end end })
 
 -- ============================================================
 -- SETTINGS TAB
 -- ============================================================
-Settings = Window:Tab({ Title='Settings', Icon='star' })
-Settings:Section({ Title='การตั้งค่า UI' })
+Settings = Window:Tab({ Title='Settings', Icon='settings' })
+-- Quick Buttons Settings
+Settings:Section({ Title = 'Quick Action Buttons' })
+
+local qbFuncList = {}
+for k in pairs(QUICK_FUNCTIONS) do table.insert(qbFuncList, k) end
+table.sort(qbFuncList)
+
+local selectedQBFunc = qbFuncList[1]
+Settings:Dropdown({
+    Title = 'เลือกฟังก์ชัน',
+    Desc  = 'ฟังก์ชันที่ปุ่มนี้จะเรียกใช้',
+    Values = qbFuncList,
+    Value  = selectedQBFunc,
+    Callback = function(v) selectedQBFunc = v end,
+})
+Settings:Button({
+    Title = 'เพิ่มปุ่มใหม่',
+    Desc  = 'สร้างปุ่มลัดบนหน้าจอ',
+    Callback = function()
+        -- เช็คว่ามีปุ่มนี้อยู่แล้วไหม
+        for _, btn in ipairs(QuickButtons) do
+            if btn.funcName == selectedQBFunc then
+                Notify({ Title='มีอยู่แล้ว', Desc=selectedQBFunc..' มีปุ่มอยู่แล้ว', Duration=2 })
+                return
+            end
+        end
+        createQuickButton(selectedQBFunc, 80 + #QuickButtons * 70, 200, 65, false)
+        Notify({ Title='เพิ่มแล้ว', Desc='ปุ่ม '..selectedQBFunc..' ถูกเพิ่มบนหน้าจอ', Duration=2 })
+    end,
+})
+Settings:Button({
+    Title = 'ลบปุ่มที่เลือก',
+    Desc  = 'ลบปุ่มของฟังก์ชันที่เลือกออก',
+    Callback = function()
+        removeQuickButton(selectedQBFunc)
+        Notify({ Title='ลบแล้ว', Desc='ลบปุ่ม '..selectedQBFunc..' แล้ว', Duration=2 })
+    end,
+})
+Settings:Toggle({
+    Title = 'ล็อกตำแหน่งปุ่ม',
+    Desc  = 'ป้องกันการลากปุ่มโดยไม่ตั้งใจ',
+    Value = false,
+    Callback = function(state) quickButtonsLocked = state end,
+})
+Settings:Button({
+    Title = 'ลบปุ่มทั้งหมด',
+    Desc  = 'ลบ Quick Buttons ออกทั้งหมด',
+    Callback = function()
+        removeAllQuickButtons()
+        Notify({ Title='ลบแล้ว', Desc='ลบปุ่มทั้งหมดแล้ว', Duration=2 })
+    end,
+})
+
+notifyEnabled = true
+
+Settings:Toggle({
+    Title = 'แจ้งเตือน (Notify)',
+    Desc = 'เปิด/ปิดการแจ้งเตือนทั้งหมด',
+    Value = true,
+    Callback = function(a) notifyEnabled = a end,
+})
+
 Settings:Keybind({ Title='Minimize Keybind', Desc='กำหนดปุ่มเปิด/ปิด UI', Value='LeftAlt',
     Callback=function(g) pcall(function() Window:SetToggleKey(Enum.KeyCode[g]) end) end })
 Settings:Dropdown({ Title='Set Theme', Desc='เลือกธีม UI', Values={'BlackCrown','Dark','Void','Purple','Light'}, Value='BlackCrown',
@@ -2564,7 +3144,7 @@ RoundEndEvent.OnClientEvent:Connect(function()
 end)
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         RunService.Heartbeat:Wait()
         local g=getPlayerRole()
         local i=g=='Innocent' or g=='Sheriff' or g=='Murderer' or g=='Hero'
@@ -2583,7 +3163,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while true do
+    while true and _G.BlackCrownX_Running do
         RunService.Heartbeat:Wait()
         if bagFullActionInProgress then continue end
         local g=getPlayerRole()
@@ -2611,7 +3191,7 @@ task.spawn(function()
                             if n then n.PlatformStand=true end
                         else if s then s:Disconnect() end end
                     end)
-                    while k and k:FindFirstChild('TouchInterest') and k.Transparency==1 and not allCoinsCollected and isFarmingCoins and p:GetAttribute('Alive')==true do RunService.Heartbeat:Wait() end
+                    while k and k:FindFirstChild('TouchInterest') and k.Transparency==1 and not allCoinsCollected and isFarmingCoins and p:GetAttribute('Alive')==true and _G.BlackCrownX_Running do RunService.Heartbeat:Wait() end
                     if s then s:Disconnect() end
                     if currentTween then currentTween:Cancel() end
                     if m then m.Velocity=Vector3.new(0,0,0); m.RotVelocity=Vector3.new(0,0,0) end
@@ -2621,7 +3201,8 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function() while true do RunService.Heartbeat:Wait(); esp_f(); getgun() end end)
+task.spawn(function()
+    while true and _G.BlackCrownX_Running do RunService.Heartbeat:Wait(); esp_f(); getgun() end end)
 
 for g, h in ipairs(ps:GetPlayers()) do h.CharacterAdded:Connect(function() task.wait(0.5); esp_f() end) end
 ps.PlayerAdded:Connect(function(g) g.CharacterAdded:Connect(function() task.wait(0.5); esp_f() end) end)
@@ -2633,140 +3214,158 @@ ps.PlayerRemoving:Connect(function(g) esp_d(g); esp_b(g) end)
 local SAVE_FILE = 'BlackCrownX/bcx_auto.json'
 if not isfolder('BlackCrownX') then makefolder('BlackCrownX') end
 
+local isSaving = false
 local function saveState()
-    pcall(function()
-        writefile(SAVE_FILE, HttpService:JSONEncode({
-            autoKillAllEnabled=autoKillAllEnabled,
-            autoKillSelectedEnabled=autoKillSelectedEnabled,
-            autoShootEnabled=autoShootEnabled,
-            magicBulletEnabled=magicBulletEnabled,
-            isafEnabled=isafEnabled,
-            isagbEnabled=isagbEnabled,
-            VoidHideEnabled=VoidHideSettings.Enabled,
-            VoidHidePOS=showVoidPositionEnabled,
-            walkSpeedEnabled=walkSpeedEnabled,
-            customWalkSpeed=customWalkSpeed,
-            jumpPowerEnabled=jumpPowerEnabled,
-            customJumpPower=customJumpPower,
-            fovEnabled=fovEnabled,
-            customFOV=customFOV,
-            isFarmingCoins=isFarmingCoins,
-            resetWhenBagFull=resetWhenBagFull,
-            flingMurdererWhenBagFull=flingMurdererWhenBagFull,
-            flingShootWhenBagFull=flingShootWhenBagFull,
-            shootMurdererWhenBagFull=shootMurdererWhenBagFull,
-            killAllWhenBagFull=killAllWhenBagFull,
-            forceFieldEnabled=forceFieldEnabled,
-            headlessEnabled=headlessEnabled,
-            korbloxEnabled=korbloxEnabled,
-            auraEnabled=auraEnabled,
-            chinaHatEnabled=chinaHatEnabled,
-            killEffectEnabled=killEffectEnabled,
-            skyEnabled=skyEnabled,
-            selectedSkyType=selectedSkyType,
-            weatherEnabled=weatherEnabled,
-            selectedWeatherType=selectedWeatherType,
-            weatherIntensity=weatherIntensity,
-            crosshairEnabled=crosshairEnabled,
-            toolSpinEnabled=toolSpinEnabled,
-            toolSpinSpeed=toolSpinSpeed,
-            forceFieldToolsEnabled=forceFieldToolsEnabled,
-            texturesEnabled=texturesEnabled,
-            selectedTextureTheme=selectedTextureTheme,
-            lightingEnabled=lightingEnabled,
-            ambientEnabled=ambientEnabled,
-            timeEnabled=timeEnabled,
-            timeValue=timeValue,
-            ccEnabled=ccEnabled,
-            ccSaturation=ccSaturation,
-            ccContrast=ccContrast,
-            ccBrightness=ccBrightness,
-            watermarkEnabled=watermarkEnabled,
-            shadersenabled=shadersenabled,
-            ESP_M=ESP_SETTINGS.Murderer,
-            ESP_S=ESP_SETTINGS.Sheriff,
-            ESP_I=ESP_SETTINGS.Innocent,
-            ESP_H=ESP_SETTINGS.Hero,
-            NAME_M=NAME_ESP_SETTINGS.Murderer,
-            NAME_S=NAME_ESP_SETTINGS.Sheriff,
-            NAME_I=NAME_ESP_SETTINGS.Innocent,
-            NAME_H=NAME_ESP_SETTINGS.Hero,
-            aimbotEnabled=aimbotEnabled,
-            aimbotTargetPart=aimbotTargetPart,
-            aimbotSmoothness=aimbotSmoothness,
-            wallCheckEnabled=wallCheckEnabled,
-            fovEnabled_aim=fovEnabled_aim,
-            fovRadius=fovRadius,
-            danceEnabled=danceEnabled,
-            selectedDanceId=selectedDanceId,
-        }))
+    if isSaving then return end  -- กันเรียกซ้อน
+    isSaving = true
+    task.defer(function()  -- ใช้ task.defer แทน ไม่บล็อก main thread
+        pcall(function()
+            local encoded = HttpService:JSONEncode({
+                autoKillAllEnabled=autoKillAllEnabled,
+                autoKillSelectedEnabled=autoKillSelectedEnabled,
+                autoShootEnabled=autoShootEnabled,
+                magicBulletEnabled=magicBulletEnabled,
+                isafEnabled=isafEnabled,
+                isagbEnabled=isagbEnabled,
+                VoidHideEnabled=VoidHideSettings.Enabled,
+                VoidHidePOS=showVoidPositionEnabled,
+                walkSpeedEnabled=walkSpeedEnabled,
+                customWalkSpeed=customWalkSpeed,
+                jumpPowerEnabled=jumpPowerEnabled,
+                customJumpPower=customJumpPower,
+                fovEnabled=fovEnabled,
+                customFOV=customFOV,
+                isFarmingCoins=isFarmingCoins,
+                resetWhenBagFull=resetWhenBagFull,
+                flingMurdererWhenBagFull=flingMurdererWhenBagFull,
+                flingShootWhenBagFull=flingShootWhenBagFull,
+                shootMurdererWhenBagFull=shootMurdererWhenBagFull,
+                killAllWhenBagFull=killAllWhenBagFull,
+                forceFieldEnabled=forceFieldEnabled,
+                headlessEnabled=headlessEnabled,
+                korbloxEnabled=korbloxEnabled,
+                auraEnabled=auraEnabled,
+                chinaHatEnabled=chinaHatEnabled,
+                killEffectEnabled=killEffectEnabled,
+                skyEnabled=skyEnabled,
+                selectedSkyType=selectedSkyType,
+                weatherEnabled=weatherEnabled,
+                selectedWeatherType=selectedWeatherType,
+                weatherIntensity=weatherIntensity,
+                crosshairEnabled=crosshairEnabled,
+                toolSpinEnabled=toolSpinEnabled,
+                toolSpinSpeed=toolSpinSpeed,
+                forceFieldToolsEnabled=forceFieldToolsEnabled,
+                texturesEnabled=texturesEnabled,
+                selectedTextureTheme=selectedTextureTheme,
+                lightingEnabled=lightingEnabled,
+                ambientEnabled=ambientEnabled,
+                timeEnabled=timeEnabled,
+                timeValue=timeValue,
+                ccEnabled=ccEnabled,
+                ccSaturation=ccSaturation,
+                ccContrast=ccContrast,
+                ccBrightness=ccBrightness,
+                watermarkEnabled=watermarkEnabled,
+                shadersenabled=shadersenabled,
+                Box2D=ESP_CUSTOMIZATION.Box2D,
+                DisplayName=ESP_CUSTOMIZATION.DisplayName,
+                NormalName=ESP_CUSTOMIZATION.NormalName,
+                AvatarDisplay=ESP_CUSTOMIZATION.AvatarDisplay,
+                ESP_M=ESP_SETTINGS.Murderer,
+                ESP_S=ESP_SETTINGS.Sheriff,
+                ESP_I=ESP_SETTINGS.Innocent,
+                ESP_H=ESP_SETTINGS.Hero,
+                NAME_M=NAME_ESP_SETTINGS.Murderer,
+                NAME_S=NAME_ESP_SETTINGS.Sheriff,
+                NAME_I=NAME_ESP_SETTINGS.Innocent,
+                NAME_H=NAME_ESP_SETTINGS.Hero,
+                aimbotEnabled=aimbotEnabled,
+                aimbotTargetPart=aimbotTargetPart,
+                aimbotSmoothness=aimbotSmoothness,
+                wallCheckEnabled=wallCheckEnabled,
+                fovEnabled_aim=fovEnabled_aim,
+                fovRadius=fovRadius,
+                danceEnabled=danceEnabled,
+                selectedDanceId=selectedDanceId,
+                notifyEnabled=notifyEnabled,
+            })
+            writefile(SAVE_FILE, encoded)
+        end)
+        isSaving = false -- เพิ่มบรรทัดนี้เพื่อให้ฟังก์ชันเรียกซ้ำในรอบต่อไปได้
     end)
 end
 
 local function syncUI()
-    -- ดึง UIElements จาก getgenv กันกรณี scope หาย
-    local elements = getgenv().UIElements or UIElements
+    getgenv().UIElements = UIElements
+    local elements = UIElements
     if not elements then return end
 
     local syncList = {
-        {UIElements.autoKillAllToggle,       autoKillAllEnabled},
-        {UIElements.autoKillSelectedToggle,  autoKillSelectedEnabled},
-        {UIElements.autoShootToggle,         autoShootEnabled},
-        {UIElements.magicBulletToggle,       magicBulletEnabled},
-        {UIElements.antiFlingToggle,         isafEnabled},
-        {UIElements.autoGrabGunToggle,       isagbEnabled},
-        {UIElements.voidHideToggle,          VoidHideSettings.Enabled},
-        {UIElements.showVoidPosToggle,       showVoidPositionEnabled},
-        {UIElements.walkSpeedToggle,         walkSpeedEnabled},
-        {UIElements.walkSpeedSlider,         customWalkSpeed},
-        {UIElements.jumpPowerToggle,         jumpPowerEnabled},
-        {UIElements.jumpPowerSlider,         customJumpPower},
-        {UIElements.fovToggle,               fovEnabled},
-        {UIElements.fovSlider,               customFOV},
-        {UIElements.farmCoinsToggle,         isFarmingCoins},
-        {UIElements.resetBagToggle,          resetWhenBagFull},
-        {UIElements.flingMurdererBagToggle,  flingMurdererWhenBagFull},
-        {UIElements.flingShootBagToggle,     flingShootWhenBagFull},
-        {UIElements.shootMurdererBagToggle,  shootMurdererWhenBagFull},
-        {UIElements.killAllBagToggle,        killAllWhenBagFull},
-        {UIElements.forceFieldToggle,        forceFieldEnabled},
-        {UIElements.auraToggle,              auraEnabled},
-        {UIElements.killEffectToggle,        killEffectEnabled},
-        {UIElements.chinaHatToggle,          chinaHatEnabled},
-        {UIElements.headlessToggle,          headlessEnabled},
-        {UIElements.korbloxToggle,           korbloxEnabled},
-        {UIElements.rtxToggle,               shadersenabled},
-        {UIElements.skyToggle,               skyEnabled},
-        {UIElements.weatherToggle,           weatherEnabled},
-        {UIElements.weatherIntensitySlider,  weatherIntensity},
-        {UIElements.crosshairToggle,         crosshairEnabled},
-        {UIElements.toolSpinToggle,          toolSpinEnabled},
-        {UIElements.toolSpinSlider,          toolSpinSpeed},
-        {UIElements.forceFieldToolsToggle,   forceFieldToolsEnabled},
-        {UIElements.texturesToggle,          texturesEnabled},
-        {UIElements.lightingToggle,          lightingEnabled},
-        {UIElements.ambientToggle,           ambientEnabled},
-        {UIElements.timeToggle,              timeEnabled},
-        {UIElements.timeSlider,              timeValue},
-        {UIElements.ccToggle,                ccEnabled},
-        {UIElements.watermarkToggle,         watermarkEnabled},
-        {UIElements.allESPToggle,            allESPEnabled},
-        {UIElements.espMurdererToggle,       ESP_SETTINGS.Murderer},
-        {UIElements.espSheriffToggle,        ESP_SETTINGS.Sheriff},
-        {UIElements.espInnocentToggle,       ESP_SETTINGS.Innocent},
-        {UIElements.espHeroToggle,           ESP_SETTINGS.Hero},
-        {UIElements.nameMurdererToggle,      NAME_ESP_SETTINGS.Murderer},
-        {UIElements.nameSheriffToggle,       NAME_ESP_SETTINGS.Sheriff},
-        {UIElements.nameInnocentToggle,      NAME_ESP_SETTINGS.Innocent},
-        {UIElements.nameHeroToggle,          NAME_ESP_SETTINGS.Hero},
-        {UIElements.aimbotToggle,            aimbotEnabled},
-        {UIElements.wallCheckToggle,         wallCheckEnabled},
-        {UIElements.fovCircleToggle,         fovEnabled_aim},
-        {UIElements.danceToggle,             danceEnabled},
+        {elements.autoKillAllToggle,       autoKillAllEnabled},
+        {elements.autoKillSelectedToggle,  autoKillSelectedEnabled},
+        {elements.autoShootToggle,         autoShootEnabled},
+        {elements.magicBulletToggle,       magicBulletEnabled},
+        {elements.antiFlingToggle,         isafEnabled},
+        {elements.noclipToggle,            noclipEnabled},
+        {elements.autoGrabGunToggle,       isagbEnabled},
+        {elements.voidHideToggle,          VoidHideSettings.Enabled},
+        {elements.showVoidPosToggle,       showVoidPositionEnabled},
+        {elements.walkSpeedToggle,         walkSpeedEnabled},
+        {elements.walkSpeedSlider,         customWalkSpeed},
+        {elements.jumpPowerToggle,         jumpPowerEnabled},
+        {elements.jumpPowerSlider,         customJumpPower},
+        {elements.fovToggle,               fovEnabled},
+        {elements.fovSlider,               customFOV},
+        {elements.farmCoinsToggle,         isFarmingCoins},
+        {elements.resetBagToggle,          resetWhenBagFull},
+        {elements.flingMurdererBagToggle,  flingMurdererWhenBagFull},
+        {elements.flingShootBagToggle,     flingShootWhenBagFull},
+        {elements.shootMurdererBagToggle,  shootMurdererWhenBagFull},
+        {elements.killAllBagToggle,        killAllWhenBagFull},
+        {elements.forceFieldToggle,        forceFieldEnabled},
+        {elements.auraToggle,              auraEnabled},
+        {elements.killEffectToggle,        killEffectEnabled},
+        {elements.chinaHatToggle,          chinaHatEnabled},
+        {elements.headlessToggle,          headlessEnabled},
+        {elements.korbloxToggle,           korbloxEnabled},
+        {elements.rtxToggle,               shadersenabled},
+        {elements.skyToggle,               skyEnabled},
+        {elements.weatherToggle,           weatherEnabled},
+        {elements.weatherIntensitySlider,  weatherIntensity},
+        {elements.crosshairToggle,         crosshairEnabled},
+        {elements.toolSpinToggle,          toolSpinEnabled},
+        {elements.toolSpinSlider,          toolSpinSpeed},
+        {elements.forceFieldToolsToggle,   forceFieldToolsEnabled},
+        {elements.texturesToggle,          texturesEnabled},
+        {elements.lightingToggle,          lightingEnabled},
+        {elements.ambientToggle,           ambientEnabled},
+        {elements.timeToggle,              timeEnabled},
+        {elements.timeSlider,              timeValue},
+        {elements.ccToggle,                ccEnabled},
+        {elements.watermarkToggle,         watermarkEnabled},
+        {elements.allESPToggle,            allESPEnabled},
+        {elements.espMurdererToggle,       ESP_SETTINGS.Murderer},
+        {elements.espSheriffToggle,        ESP_SETTINGS.Sheriff},
+        {elements.espInnocentToggle,       ESP_SETTINGS.Innocent},
+        {elements.espHeroToggle,           ESP_SETTINGS.Hero},
+        {elements.nameMurdererToggle,      NAME_ESP_SETTINGS.Murderer},
+        {elements.nameSheriffToggle,       NAME_ESP_SETTINGS.Sheriff},
+        {elements.nameInnocentToggle,      NAME_ESP_SETTINGS.Innocent},
+        {elements.nameHeroToggle,          NAME_ESP_SETTINGS.Hero},
+        {elements.aimbotToggle,            aimbotEnabled},
+        {elements.wallCheckToggle,         wallCheckEnabled},
+        {elements.fovCircleToggle,         fovEnabled_aim},
+        {elements.danceToggle,             danceEnabled},
+        {elements.notifyToggle, notifyEnabled},
     }
+
     for _, item in ipairs(syncList) do
-        local element, value=item[1], item[2]
-        if element and element.SetValue then pcall(function() element:SetValue(value) end) end
+        local element, value = item[1], item[2]
+        if element and element.Set then
+            -- FIX: ใช้ Set แทน SetValue
+            pcall(function() element:Set(value) end)
+        end
     end
 end
 
@@ -2779,6 +3378,18 @@ local function loadState()
     if data.autoKillSelectedEnabled~=nil then autoKillSelectedEnabled=data.autoKillSelectedEnabled end
     if data.autoShootEnabled~=nil then autoShootEnabled=data.autoShootEnabled end
     if data.magicBulletEnabled~=nil then magicBulletEnabled=data.magicBulletEnabled; if data.magicBulletEnabled then pcall(enableMagicBullet) end end
+    if data.noclipEnabled then
+    noclipEnabled = true
+    if not noclipSteppedConn then
+        noclipSteppedConn = RunService.Stepped:Connect(function()
+            if noclipEnabled and p.Character then
+                for _, part in pairs(p.Character:GetDescendants()) do
+                    if part:IsA('BasePart') then part.CanCollide = false end
+                end
+            end
+        end)
+    end
+end
     if data.isafEnabled~=nil then isafEnabled=data.isafEnabled end
     if data.isagbEnabled~=nil then isagbEnabled=data.isagbEnabled end
     if data.VoidHideEnabled then
@@ -2848,6 +3459,10 @@ local function loadState()
         ccEffect.Enabled=true; ccEffect.Parent=lighting
     end
     if data.watermarkEnabled then watermarkEnabled=true; pcall(createWatermark) end
+    if data.Box2D~=nil then ESP_CUSTOMIZATION.Box2D=data.Box2D end
+    if data.DisplayName~=nil then ESP_CUSTOMIZATION.DisplayName=data.DisplayName end
+    if data.NormalName~=nil then ESP_CUSTOMIZATION.NormalName=data.NormalName end
+    if data.AvatarDisplay~=nil then ESP_CUSTOMIZATION.AvatarDisplay=data.AvatarDisplay end
     if data.ESP_M~=nil then ESP_SETTINGS.Murderer=data.ESP_M end
     if data.ESP_S~=nil then ESP_SETTINGS.Sheriff=data.ESP_S end
     if data.ESP_I~=nil then ESP_SETTINGS.Innocent=data.ESP_I end
@@ -2865,31 +3480,51 @@ local function loadState()
     if data.danceEnabled then
         danceEnabled=true; if data.selectedDanceId then selectedDanceId=data.selectedDanceId end; task.spawn(playDance)
     end
+    if data.notifyEnabled~=nil then notifyEnabled=data.notifyEnabled end
+    Notify({ Title='BlackCrown-X', Desc='โหลด config ก่อนหน้าสำเร็จ!', Duration=3, Icon='check' })
+end  -- ปิด loadState
 
-
+-- เซฟทุก 10 วินาที
 task.spawn(function()
-    task.wait(2)
-    getgenv().UIElements = UIElements
-    for i = 1, 3 do
-        syncUI()
-        task.wait(0.5)
+    while _G.BlackCrownX_Running do
+        task.wait(30)
+        pcall(saveState)
     end
 end)
 
-    Library:Notify({ Title='BlackCrown-X', Desc='โหลด config ก่อนหน้าสำเร็จ!', Duration=3, Icon='check' })
-end
 
 -- โหลดตอนเริ่ม รอ character พร้อม
 task.spawn(function()
-    task.wait(3)
+    task.wait(0.5)  -- รอแค่ให้ UI render frame แรกเสร็จ
     if not p.Character then p.CharacterAdded:Wait() end
     p.Character:WaitForChild('HumanoidRootPart', 10)
-    task.wait(1)
     getgenv().UIElements = UIElements
     pcall(loadState)
+    -- รอ UIElements พร้อมจริงๆ แทนรอเวลาตายตัว
+    local t = 0
+    while not UIElements.notifyToggle and t < 5 do
+        task.wait(0.1)
+        t = t + 0.1
+    end
+    getgenv().UIElements = UIElements
+    syncUI()  -- ครั้งเดียวพอ เพราะรอจนพร้อมแล้ว
 end)
 
--- เซฟทุก 10 วินาที
-task.spawn(function() while true do task.wait(10); pcall(saveState) end end)
+-- โหลด Quick Buttons ที่บันทึกไว้
+-- โหลด Quick Buttons หลังทุกอย่างพร้อม
+task.spawn(function()
+    task.wait(4) -- รอให้ทุก function และตัวแปร init เสร็จก่อน
+    loadQuickButtons()
+end)
 
-Library:Notify({ Title='BlackCrown-X', Desc='โหลดสำเร็จ! กด Left Alt เพื่อเปิด/ปิดเมนู', Duration=5, Icon='check' })
+-- Cleanup เมื่อปิด UI
+if _G.BlackCrownX_Window then
+    pcall(function()
+        _G.BlackCrownX_Window.OnClose = function()
+            -- ไม่ destroy QuickButtons เมื่อปิด UI
+            -- เพราะต้องการให้ปุ่มยังอยู่บนหน้าจอ
+        end
+    end)
+end
+
+Notify({ Title='BlackCrown-X', Desc='โหลดสำเร็จ! กด Left Alt เพื่อเปิด/ปิดเมนู', Duration=5, Icon='check' })
