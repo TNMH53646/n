@@ -1476,7 +1476,7 @@ loadWaypointsFromFile()
 -- ------------------------------------------------------------
 -- UI
 -- ------------------------------------------------------------
-local WaypointSection = LocalPlayerTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
+local WaypointSection = TPTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
 
 WaypointSection:Input({
     Title = "Waypoint Name",
@@ -1580,6 +1580,53 @@ WaypointSection:Button({
         saveWaypointsToFile()
         refreshDropdown()
         notify("Deleted", "ลบจุด: " .. deleted)
+    end
+})
+
+local MovementSection = LocalPlayerTab:Section({ Title = "Movement System", Icon = "move" })
+
+MovementSection:Toggle({
+    Title = "Noclip",
+    Desc = "เดินทะลุกำแพงและสิ่งกีดขวางได้",
+    Value = false,
+    Callback = function(state)
+        setNoclip(state)
+    end
+})
+
+MovementSection:Toggle({
+    Title = "Infinite Jump",
+    Desc = "กระโดดบนอากาศได้อย่างต่อเนื่องไม่จำกัด",
+    Value = false,
+    Callback = function(state)
+        setInfiniteJump(state)
+    end
+})
+
+MovementSection:Slider({
+    Title = "Fly Speed",
+    Desc = "ปรับความเร็วในการบิน",
+    Value = {
+        Min = 10,
+        Max = 200,
+        Default = 50,
+    },
+    Step = 1,
+    Callback = function(val)
+        flySpeed = tonumber(val) or 50
+    end
+})
+
+MovementSection:Toggle({
+    Title = "Fly",
+    Desc = "บินอย่างอิสระ (รองรับ WASD บน PC และ Joystick บนมือถือ)",
+    Value = false,
+    Callback = function(state)
+        if state then
+            startFly()
+        else
+            stopFly()
+        end
     end
 })
 
