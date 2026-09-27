@@ -1636,7 +1636,7 @@ local keybindFlyState = false
 MovementKeybindSection:Keybind({
     Title = "Noclip Keybind",
     Desc = "กดเพื่อเปิด/ปิด เดินทะลุกำแพง",
-    Value = "N",
+    Value = "V",
     Callback = function()
         keybindNoclipState = not keybindNoclipState
         setNoclip(keybindNoclipState)
@@ -1655,7 +1655,7 @@ MovementKeybindSection:Keybind({
 MovementKeybindSection:Keybind({
     Title = "Infinite Jump Keybind",
     Desc = "กดเพื่อเปิด/ปิด กระโดดรัวบนอากาศ",
-    Value = "J",
+    Value = "T",
     Callback = function()
         keybindInfJumpState = not keybindInfJumpState
         setInfiniteJump(keybindInfJumpState)
