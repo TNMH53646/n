@@ -1398,8 +1398,6 @@ TrackingSection:Toggle({
 -- PERSISTENT WAYPOINT SYSTEM (SEPARATED BY PLACE ID)
 -- ------------------------------------------------------------
 local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local p = Players.LocalPlayer
 
 local PlaceId = tostring(game.PlaceId)
 local FolderName = "Script_Waypoints"
@@ -1408,10 +1406,8 @@ local FilePath = FolderName .. "/" .. PlaceId .. ".json"
 local waypointsData = {}
 local currentInputName = ""
 local selectedWaypointName = ""
+local waypointDropdown = nil
 
--- ------------------------------------------------------------
--- File Save / Load
--- ------------------------------------------------------------
 local function ensureFolder()
     if isfolder and not isfolder(FolderName) then
         pcall(makefolder, FolderName)
@@ -1473,45 +1469,37 @@ WaypointSection:Input({
     end
 })
 
--- ------------------------------------------------------------
--- FIX: Dropdown container — rebuild instead of :Set()
--- ------------------------------------------------------------
-local dropdownContainer = WaypointSection  -- section ที่จะใส่ dropdown
-
+-- ✅ ฟังก์ชัน rebuild ที่ถูกต้อง (ใช้ :Set() ของ WindUI)
 local function rebuildDropdown()
     selectedWaypointName = ""
+    local names = getWaypointNamesList()
 
     if waypointDropdown then
+        -- WindUI ใช้ :Set() รับ table ของ Values ใหม่
         pcall(function()
-            waypointDropdown:Set(getWaypointNamesList())  -- ใช้แค่ :Set() อย่างเดียว
+            waypointDropdown:Set(names)
         end)
+    else
+        -- สร้างครั้งแรก
+        waypointDropdown = WaypointSection:Dropdown({
+            Title = "Select Waypoint",
+            Desc = "เลือกจุดที่ต้องการเทเลพอร์ต",
+            Values = names,
+            Value = "",
+            Callback = function(val)
+                if val ~= "ไม่มีจุดเซฟ" then
+                    selectedWaypointName = val
+                else
+                    selectedWaypointName = ""
+                end
+            end
+        })
     end
 end
-    waypointDropdown = nil
-    selectedWaypointName = ""
 
-    -- สร้างใหม่พร้อมรายการล่าสุด
-    waypointDropdown = dropdownContainer:Dropdown({
-        Title = "Select Waypoint",
-        Desc = "เลือกจุดที่ต้องการเทเลพอร์ต",
-        Values = getWaypointNamesList(),
-        Value = "",
-        Callback = function(val)
-            if val ~= "ไม่มีจุดเซฟ" then
-                selectedWaypointName = val
-            else
-                selectedWaypointName = ""
-            end
-        end
-    })
-end
-
--- สร้างครั้งแรก
+-- สร้าง dropdown ครั้งแรก
 rebuildDropdown()
 
--- ------------------------------------------------------------
--- Buttons
--- ------------------------------------------------------------
 WaypointSection:Button({
     Title = "Save Current Position",
     Desc = "เซฟจุดปัจจุบันด้วยชื่อที่พิมพ์ไว้ข้างบน",
@@ -1521,14 +1509,12 @@ WaypointSection:Button({
             notify("Error", "กรุณาพิมพ์ชื่อจุดก่อน!")
             return
         end
-
         local char = p.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
-
         if root then
             waypointsData[trimmed] = { root.CFrame:GetComponents() }
             saveWaypointsToFile()
-            rebuildDropdown()  -- rebuild แทน :Set()
+            rebuildDropdown()
             notify("Saved!", "เซฟจุด: " .. trimmed)
         else
             notify("Error", "ไม่พบตัวละคร!")
@@ -1537,7 +1523,7 @@ WaypointSection:Button({
 })
 
 WaypointSection:Button({
-    Title = "🔄 Refresh Waypoints",
+    Title = "Refresh Waypoints",
     Desc = "กดเพื่อรีเฟรช Dropdown ใหม่",
     Callback = function()
         rebuildDropdown()
@@ -1553,10 +1539,8 @@ WaypointSection:Button({
             notify("Error", "กรุณาเลือกจุดก่อน!")
             return
         end
-
         local char = p.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
-
         if root then
             root.CFrame = CFrame.new(table.unpack(waypointsData[selectedWaypointName]))
         else
@@ -1573,11 +1557,10 @@ WaypointSection:Button({
             notify("Error", "กรุณาเลือกจุดก่อน!")
             return
         end
-
         local deleted = selectedWaypointName
         waypointsData[deleted] = nil
         saveWaypointsToFile()
-        rebuildDropdown()  -- rebuild แทน :Set()
+        rebuildDropdown()
         notify("Deleted", "ลบจุด: " .. deleted)
     end
 })
