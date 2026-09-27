@@ -452,6 +452,7 @@ local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = fa
 local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
 local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
 local LocalPlayerTab = Window:Tab({ Title = "Local Player", Icon = "user" })
+local KeybindTab = Window:Tab({ Title = "Keybinds", Icon = "keyboard" })
 local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
 
 -- ==================== MAIN TAB UI ====================
@@ -1439,6 +1440,75 @@ MovementSection:Toggle({
             stopFly()
         end
     end
+})
+-- ==================== Keybind TAB UI ====================
+local MovementKeybindSection = KeybindTab:Section({ Title = "Movement Keybinds", Icon = "command" })
+
+-- ตัวแปรเก็บสถานะการเปิด/ปิดผ่าน Keybind
+local keybindNoclipState = false
+local keybindInfJumpState = false
+local keybindFlyState = false
+
+-- Keybind: Noclip (ปุ่ม N)
+MovementKeybindSection:Keybind({
+    Title = "Noclip Keybind",
+    Desc = "กดเพื่อเปิด/ปิด เดินทะลุกำแพง",
+    Value = "N",
+    Callback = function()
+        keybindNoclipState = not keybindNoclipState
+        setNoclip(keybindNoclipState)
+        
+        if type(Notify) == "function" then
+            Notify({ 
+                Title = 'Noclip', 
+                Desc = keybindNoclipState and 'เปิดใช้งาน' or 'ปิดใช้งาน', 
+                Duration = 1.5 
+            })
+        end
+    end,
+})
+
+-- Keybind: Infinite Jump (ปุ่ม J)
+MovementKeybindSection:Keybind({
+    Title = "Infinite Jump Keybind",
+    Desc = "กดเพื่อเปิด/ปิด กระโดดรัวบนอากาศ",
+    Value = "J",
+    Callback = function()
+        keybindInfJumpState = not keybindInfJumpState
+        setInfiniteJump(keybindInfJumpState)
+        
+        if type(Notify) == "function" then
+            Notify({ 
+                Title = 'Infinite Jump', 
+                Desc = keybindInfJumpState and 'เปิดใช้งาน' or 'ปิดใช้งาน', 
+                Duration = 1.5 
+            })
+        end
+    end,
+})
+
+-- Keybind: Fly (ปุ่ม F)
+MovementKeybindSection:Keybind({
+    Title = "Fly Keybind",
+    Desc = "กดเพื่อเปิด/ปิด บิน",
+    Value = "F",
+    Callback = function()
+        keybindFlyState = not keybindFlyState
+        
+        if keybindFlyState then
+            startFly()
+        else
+            stopFly()
+        end
+        
+        if type(Notify) == "function" then
+            Notify({ 
+                Title = 'Fly', 
+                Desc = keybindFlyState and 'เปิดใช้งาน' or 'ปิดใช้งาน', 
+                Duration = 1.5 
+            })
+        end
+    end,
 })
 
 -- ==================== MISC TAB UI ====================
