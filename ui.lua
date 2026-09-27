@@ -312,32 +312,36 @@ local function startFly()
     local rootPart = character.HumanoidRootPart
     local humanoid = character:FindFirstChildOfClass('Humanoid')
     if humanoid then humanoid.PlatformStand = true end
+
     bodyGyro = Instance.new('BodyGyro', rootPart)
     bodyGyro.P = 9e4
     bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
     bodyGyro.CFrame = rootPart.CFrame
+
     bodyVelocity = Instance.new('BodyVelocity', rootPart)
-    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.Velocity = Vector3.zero
     bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
     if not flyControls then
         local ok, result = pcall(function()
-            local playerModule = require(p.PlayerScripts:WaitForChild('PlayerModule', 5))
-            return playerModule:GetControls()
+            return require(p.PlayerScripts:WaitForChild('PlayerModule', 5)):GetControls()
         end)
         if ok then flyControls = result end
     end
-    flyConnection = RunService.RenderStepped:Connect(function()
+
+    flyConn = RunService.RenderStepped:Connect(function()
+        -- FIX: เช็คทุกตัวก่อนใช้งาน ป้องกัน nil index
         if not rootPart or not rootPart.Parent then return end
+        if not bodyGyro or not bodyGyro.Parent then return end
+        if not bodyVelocity or not bodyVelocity.Parent then return end
+
         local cam = workspace.CurrentCamera
         bodyGyro.CFrame = cam.CFrame
+
         if flyControls then
-            local moveVector = flyControls:GetMoveVector()
-            local moveDirection = (cam.CFrame.LookVector * -moveVector.Z) + (cam.CFrame.RightVector * moveVector.X)
-            if moveDirection.Magnitude > 0 then
-                bodyVelocity.Velocity = moveDirection.Unit * flySpeed
-            else
-                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-            end
+            local mv  = flyControls:GetMoveVector()
+            local dir = (cam.CFrame.LookVector * -mv.Z) + (cam.CFrame.RightVector * mv.X)
+            bodyVelocity.Velocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
         end
     end)
 end
@@ -1424,9 +1428,9 @@ WaypointSection:Button({
 
 -- ==================== DRAG PLAYER SYSTEM ====================
 local dragTargetName = ""
-local weldConstraint = nil
-local dragNoclipConn = nil
 local dragActive     = false
+local dragConn       = nil
+local dragWeld       = nil
 
 local function setTargetNoclip(targetName, state)
     local target = players:FindFirstChild(targetName)
@@ -1436,71 +1440,96 @@ local function setTargetNoclip(targetName, state)
     end
 end
 
+-- FIX: ล้าง physics ของ target ให้สะอาดหมด
+local function cleanTargetPhysics(targetName)
+    local target = players:FindFirstChild(targetName)
+    if not target or not target.Character then return end
+    local tgtHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    if not tgtHRP then return end
+
+    -- ลบ BodyMover ทุกชนิดที่อาจค้างอยู่
+    for _, obj in pairs(tgtHRP:GetChildren()) do
+        if obj:IsA("BodyVelocity") or obj:IsA("BodyGyro")
+        or obj:IsA("BodyPosition") or obj:IsA("BodyForce")
+        or obj:IsA("VectorForce")  or obj:IsA("LinearVelocity") then
+            obj:Destroy()
+        end
+    end
+
+    -- reset velocity
+    pcall(function()
+        tgtHRP.AssemblyLinearVelocity  = Vector3.zero
+        tgtHRP.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
 local function startDrag(targetName)
     local target = players:FindFirstChild(targetName)
     if not target or not target.Character then
-        notify("Error", "ไม่พบตัวละครของ " .. targetName)
-        return
+        notify("Error", "ไม่พบตัวละครของ " .. targetName); return
     end
 
     local myChar = localPlayer.Character
     local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
     local tgtHRP = target.Character:FindFirstChild("HumanoidRootPart")
-
     if not myHRP or not tgtHRP then
-        notify("Error", "ไม่พบ HumanoidRootPart")
-        return
+        notify("Error", "ไม่พบ HumanoidRootPart"); return
     end
 
-    -- Step 1: teleport ตัวเองไปติด target ก่อน
-    -- ให้ physics engine รู้ว่าเราอยู่ใกล้กัน → network ownership ตกมาที่เรา
+    -- Step 1: teleport ตัวเองไปติด target
     myHRP.CFrame = tgtHRP.CFrame * CFrame.new(0, 0, 2)
-    task.wait(0.2) -- รอให้ physics settle
+    task.wait(0.2)
 
-    -- Step 2: noclip ตัวเอง
+    -- Step 2: noclip ทั้งคู่
     setNoclip(true)
-
-    -- Step 3: noclip target ตลอดเวลาที่ drag อยู่
     setTargetNoclip(targetName, true)
-    if dragNoclipConn then dragNoclipConn:Disconnect() end
-    dragNoclipConn = rs.Stepped:Connect(function()
-        if dragActive then
-            setTargetNoclip(targetName, true)
-        end
+
+    -- Step 3: ล้าง physics ของ target ก่อน weld
+    cleanTargetPhysics(targetName)
+
+    -- Step 4: แทน WeldConstraint ด้วย loop ขยับ CFrame ตรงๆ
+    -- เพราะ WeldConstraint + BodyGyro ทำให้ติดขัด
+    -- FIX: ใช้ RenderStepped set CFrame target ให้ตามเราแทน
+    if dragWeld then dragWeld:Destroy(); dragWeld = nil end
+    if dragConn then dragConn:Disconnect(); dragConn = nil end
+
+    dragConn = rs.Heartbeat:Connect(function()
+        if not dragActive then return end
+
+        local myC   = localPlayer.Character
+        local curHRP = myC and myC:FindFirstChild("HumanoidRootPart")
+        local tgtC  = target.Character
+        local curTgt = tgtC and tgtC:FindFirstChild("HumanoidRootPart")
+
+        if not curHRP or not curTgt then return end
+
+        -- FIX: ขยับ target ให้อยู่ข้างๆ เราตลอดเวลา ไม่ใช้ weld
+        -- ทำให้ไม่ติด physics ของเกม
+        local offset = CFrame.new(0, 0, 2) -- ห่างจากเรา 2 studs
+        curTgt.CFrame = curHRP.CFrame * offset
+
+        -- noclip target ทุก frame
+        setTargetNoclip(targetName, true)
     end)
 
-    -- Step 4: weld target ติดเรา
-    if weldConstraint then weldConstraint:Destroy() end
-    weldConstraint = Instance.new("WeldConstraint")
-    weldConstraint.Part0 = myHRP
-    weldConstraint.Part1 = tgtHRP
-    weldConstraint.Parent = myHRP
-
-    task.wait(0.1) -- รอให้ weld ติดก่อนบิน
-
-    -- Step 5: เปิด fly
+    task.wait(0.1)
     startFly()
 end
 
 local function stopDrag(targetName)
     dragActive = false
 
-    -- ปิด fly ก่อน
+    -- หยุด loop ก่อน
+    if dragConn then dragConn:Disconnect(); dragConn = nil end
+    if dragWeld then dragWeld:Destroy(); dragWeld = nil end
+
+    -- ปิด fly
     stopFly()
 
-    -- ถอด weld
-    if weldConstraint then
-        weldConstraint:Destroy()
-        weldConstraint = nil
-    end
+    -- FIX: ล้าง physics ของ target ให้สะอาด ไม่บินหนีไปไหน
+    cleanTargetPhysics(targetName)
 
-    -- หยุด noclip loop ของ target
-    if dragNoclipConn then
-        dragNoclipConn:Disconnect()
-        dragNoclipConn = nil
-    end
-
-    -- คืน collision ให้ target
+    -- คืน collision
     setTargetNoclip(targetName, false)
 
     -- คืน noclip ตัวเอง
@@ -1530,26 +1559,23 @@ DragSection:Button({
 
 DragSection:Toggle({
     Title = "Drag Player",
-    Desc  = "เปิด = วาร์ปไปหา + Weld + Noclip + Fly / ปิด = ปล่อยทุกอย่าง",
+    Desc  = "เปิด = วาร์ปไปหา + ลาก + Noclip + Fly / ปิด = ปล่อยสะอาด",
     Value = false,
     Callback = function(state)
         if dragTargetName == "" then
             notify("Error", "กรุณาเลือกผู้เล่นก่อน!")
             return
         end
-
         dragActive = state
-
         if state then
             startDrag(dragTargetName)
-            notify("Drag ON", "กำลังลาก " .. dragTargetName .. " — บินไปจุดหมายได้เลย")
+            notify("Drag ON", "กำลังลาก " .. dragTargetName)
         else
             stopDrag(dragTargetName)
             notify("Drag OFF", "ปล่อย " .. dragTargetName .. " เรียบร้อย")
         end
     end
 })
-
 -- ==================== LOCAL PLAYER TAB ====================
 local MovementSection = LocalPlayerTab:Section({ Title = "Movement System", Icon = "move" })
 
