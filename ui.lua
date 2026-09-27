@@ -1445,39 +1445,40 @@ local function getWaypointNamesList()
         table.insert(names, name)
     end
     table.sort(names)
+    
+    -- ถ้าไม่มีจุดเซฟเลย ให้มีข้อความแจ้งเตือนไว้
+    if #names == 0 then
+        table.insert(names, "ไม่มีจุดเซฟ")
+    end
+    
     return names
 end
 
--- โหลดข้อมูลที่เคยเซฟไว้ในแมพนี้ทันทีที่รันสคริปต์
+-- โหลดข้อมูลที่เคยเซฟไว้
 loadWaypointsFromFile()
 
 -- ------------------------------------------------------------
--- สร้าง UI Control ใน LocalPlayerTab
+-- สร้าง UI Control
 -- ------------------------------------------------------------
-local WaypointSection = LocalPlayerTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
+local WaypointSection = TPTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
 
--- 1. ช่องพิมพ์ชื่อจุด
 WaypointSection:Input({
     Title = "Waypoint Name",
-    Desc = "พิมพ์ชื่อตำแหน่งที่ต้องการเซฟ (เช่น 'จุดฟาร์ม', 'บอส')",
-    Placeholder = "พิมพ์ชื่อจุดที่นี่...",
+    Desc = "พิมพ์ชื่อตำแหน่งที่ต้องการเซฟ",
+    Placeholder = "พิมพ์ชื่อจุด...",
     Callback = function(text)
         currentInputName = text
     end
 })
 
--- ตัวแปรอ้างอิง Dropdown เพื่อใช้สั่งอัปเดตข้อมูลย้อนหลัง
 local waypointDropdown
 
--- 2. ปุ่มเซฟพิกัดปัจจุบัน
 WaypointSection:Button({
     Title = "Save Current Position",
     Desc = "เซฟจุดปัจจุบันด้วยชื่อที่พิมพ์ไว้ข้างบน",
     Callback = function()
         if currentInputName == "" or string.gsub(currentInputName, "%s+", "") == "" then
-            if type(Notify) == "function" then
-                Notify({ Title = 'Error', Desc = 'กรุณาพิมพ์ชื่อจุดก่อนทำการเซฟ!', Duration = 2 })
-            end
+            if type(Notify) == "function" then Notify({ Title = 'Error', Desc = 'กรุณาพิมพ์ชื่อจุดก่อน!', Duration = 2 }) end
             return
         end
 
@@ -1485,47 +1486,61 @@ WaypointSection:Button({
         local root = char and char:FindFirstChild("HumanoidRootPart")
         
         if root then
-            -- เซฟพิกัดและมุมหมุนตัวละคร (CFrame) เป็น Array
-            local cf = root.CFrame
-            waypointsData[currentInputName] = { cf:GetComponents() }
-            
-            -- บันทึกลงไฟล์
+            waypointsData[currentInputName] = { root.CFrame:GetComponents() }
             saveWaypointsToFile()
             
-            -- อัปเดตรายชื่อใน Dropdown
+            -- พยายามอัปเดตอัตโนมัติด้วย Set
             if waypointDropdown then
                 pcall(function()
-                    waypointDropdown:SetValues(getWaypointNamesList())
+                    waypointDropdown:Set(getWaypointNamesList())
                 end)
             end
 
-            if type(Notify) == "function" then
-                Notify({ Title = 'Saved!', Desc = 'เซฟจุด "' .. currentInputName .. '" เรียบร้อยแล้ว', Duration = 2 })
+            if type(Notify) == "function" then Notify({ Title = 'Saved!', Desc = 'เซฟจุด: ' .. currentInputName, Duration = 2 }) end
+        end
+    end
+})
+
+-- สร้าง Dropdown (ใช้รายการที่มีอยู่ปัจจุบัน)
+waypointDropdown = WaypointSection:Dropdown({
+    Title = "Select Waypoint",
+    Desc = "เลือกจุดที่ต้องการเทเลพอร์ต",
+    Values = getWaypointNamesList(),
+    Value = "",
+    Callback = function(val)
+        if val ~= "ไม่มีจุดเซฟ" then
+            selectedWaypointName = val
+        else
+            selectedWaypointName = ""
+        end
+    end
+})
+
+-- ปุ่ม Refresh แบบ Manual (กดเมื่อรายชื่อไม่ยอมอัปเดต)
+WaypointSection:Button({
+    Title = "Refresh Waypoints",
+    Desc = "กดเพื่อรีเฟรชรายชื่อใน Dropdown ล่าสุด",
+    Callback = function()
+        if waypointDropdown then
+            local success, err = pcall(function()
+                waypointDropdown:Set(getWaypointNamesList())
+            end)
+            
+            if success then
+                if type(Notify) == "function" then Notify({ Title = 'Refreshed', Desc = 'รีเฟรชรายชื่อจุดเรียบร้อย', Duration = 1.5 }) end
+            else
+                if type(Notify) == "function" then Notify({ Title = 'Error', Desc = 'รีเฟรชไม่สำเร็จ: '..tostring(err), Duration = 2 }) end
             end
         end
     end
 })
 
--- 3. Dropdown เลือกจุดที่เคยเซฟไว้
-waypointDropdown = WaypointSection:Dropdown({
-    Title = "Select Waypoint",
-    Desc = "เลือกจุดที่ต้องการเทเลพอร์ตไป",
-    Values = getWaypointNamesList(),
-    Value = "",
-    Callback = function(val)
-        selectedWaypointName = val
-    end
-})
-
--- 4. ปุ่ม Teleport ไปยังจุดที่เลือก
 WaypointSection:Button({
     Title = "Teleport to Selected",
-    Desc = "วาร์ปไปยังจุดที่เลือกไว้ใน Dropdown",
+    Desc = "วาร์ปไปจุดที่เลือก",
     Callback = function()
         if selectedWaypointName == "" or not waypointsData[selectedWaypointName] then
-            if type(Notify) == "function" then
-                Notify({ Title = 'Error', Desc = 'กรุณาเลือกจุดจาก Dropdown ก่อน!', Duration = 2 })
-            end
+            if type(Notify) == "function" then Notify({ Title = 'Error', Desc = 'กรุณาเลือกจุดก่อน!', Duration = 2 }) end
             return
         end
 
@@ -1533,47 +1548,31 @@ WaypointSection:Button({
         local root = char and char:FindFirstChild("HumanoidRootPart")
         
         if root then
-            local cfData = waypointsData[selectedWaypointName]
-            root.CFrame = CFrame.new(unpack(cfData))
-            
-            if type(Notify) == "function" then
-                Notify({ Title = 'Teleported!', Desc = 'วาร์ปไป "' .. selectedWaypointName .. '" เรียบร้อย', Duration = 2 })
-            end
+            root.CFrame = CFrame.new(unpack(waypointsData[selectedWaypointName]))
         end
     end
 })
 
--- 5. ปุ่มลบจุดที่เลือก
 WaypointSection:Button({
     Title = "Delete Selected Waypoint",
-    Desc = "ลบจุดที่เลือกอยู่ออกจากรายการ",
+    Desc = "ลบจุดที่เลือก",
     Callback = function()
         if selectedWaypointName == "" or not waypointsData[selectedWaypointName] then
-            if type(Notify) == "function" then
-                Notify({ Title = 'Error', Desc = 'กรุณาเลือกจุดที่ต้องการลบ!', Duration = 2 })
-            end
             return
         end
 
-        local deletedName = selectedWaypointName
-        waypointsData[deletedName] = nil
+        waypointsData[selectedWaypointName] = nil
         selectedWaypointName = ""
-
-        -- บันทึกไฟล์ใหม่
         saveWaypointsToFile()
 
-        -- อัปเดต Dropdown
         if waypointDropdown then
             pcall(function()
-                waypointDropdown:SetValues(getWaypointNamesList())
+                waypointDropdown:Set(getWaypointNamesList())
             end)
-        end
-
-        if type(Notify) == "function" then
-            Notify({ Title = 'Deleted!', Desc = 'ลบจุด "' .. deletedName .. '" ออกแล้ว', Duration = 2 })
         end
     end
 })
+
 -- ==================== Local Player TAB UI ====================
 local MovementSection = LocalPlayerTab:Section({ Title = "Movement System", Icon = "move" })
 
