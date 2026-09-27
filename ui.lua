@@ -1401,8 +1401,7 @@ local HttpService = game:GetService("HttpService")
 local PlaceId = tostring(game.PlaceId)
 local FolderName = "Script_Waypoints"
 local FilePath = FolderName .. "/" .. PlaceId .. ".json"
-local savedCFrame = nil
-local isPointSaved = false
+
 local waypointsData = {}
 local currentInputName = ""
 local selectedWaypointName = ""
@@ -1455,7 +1454,7 @@ loadWaypointsFromFile()
 -- ------------------------------------------------------------
 -- สร้าง UI Control ใน LocalPlayerTab
 -- ------------------------------------------------------------
-local WaypointSection = TPTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
+local WaypointSection = LocalPlayerTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
 
 -- 1. ช่องพิมพ์ชื่อจุด
 WaypointSection:Input({
@@ -1575,7 +1574,6 @@ WaypointSection:Button({
         end
     end
 })
-
 -- ==================== Local Player TAB UI ====================
 local MovementSection = LocalPlayerTab:Section({ Title = "Movement System", Icon = "move" })
 
