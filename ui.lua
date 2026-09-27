@@ -1441,6 +1441,83 @@ MovementSection:Toggle({
         end
     end
 })
+
+local savedCFrame = nil
+local isPointSaved = false
+
+local WaypointSection = LocalPlayerTab:Section({ Title = "Position Waypoint", Icon = "map-pin" })
+
+-- 1. แบบ Toggle (กดเปิด = เซฟ | กดปิด = วาร์ปกลับ)
+WaypointSection:Toggle({
+    Title = "Save / Teleport Toggle",
+    Desc = "เปิดครั้งแรก = เซฟจุดปัจจุบัน | ปิด Toggle = วาร์ปกลับจุดที่เซฟ",
+    Value = false,
+    Callback = function(state)
+        if state then
+            -- กดเปิดครั้งแรก: บันทึกพิกัดปัจจุบัน
+            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                savedCFrame = p.Character.HumanoidRootPart.CFrame
+                isPointSaved = true
+                
+                if type(Notify) == "function" then
+                    Notify({ Title = 'Position Saved', Desc = 'บันทึกจุดสำเร็จ! (ปิด Toggle เพื่อวาร์ปกลับ)', Duration = 2.5 })
+                end
+            end
+        else
+            -- กดปิดอีกรอบ: วาร์ปกลับพิกัดที่บันทึกไว้
+            if isPointSaved and savedCFrame then
+                if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    p.Character.HumanoidRootPart.CFrame = savedCFrame
+                    
+                    if type(Notify) == "function" then
+                        Notify({ Title = 'Teleported', Desc = 'วาร์ปกลับมาจุดที่บันทึกเรียบร้อย', Duration = 2 })
+                    end
+                end
+            else
+                if type(Notify) == "function" then
+                    Notify({ Title = 'Warning', Desc = 'ยังไม่ได้ทำการบันทึกจุด!', Duration = 2 })
+                end
+            end
+        end
+    end
+})
+
+-- 2. แบบปุ่มกดแยก (แถมให้เผื่ออยากกดเซฟซ้ำ หรือวาร์ปรัวๆ โดยไม่ต้องสลับ Toggle)
+WaypointSection:Button({
+    Title = "Save Current Position",
+    Desc = "กดเพื่อบันทึกจุดที่ยืนอยู่ตอนนี้",
+    Callback = function()
+        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            savedCFrame = p.Character.HumanoidRootPart.CFrame
+            isPointSaved = true
+            
+            if type(Notify) == "function" then
+                Notify({ Title = 'Saved!', Desc = 'เซฟจุดสำเร็จ', Duration = 2 })
+            end
+        end
+    end
+})
+
+WaypointSection:Button({
+    Title = "Teleport To Saved Position",
+    Desc = "กดเพื่อวาร์ปไปยังจุดที่บันทึกไว้ล่าสุด",
+    Callback = function()
+        if isPointSaved and savedCFrame then
+            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                p.Character.HumanoidRootPart.CFrame = savedCFrame
+                
+                if type(Notify) == "function" then
+                    Notify({ Title = 'Teleported!', Desc = 'วาร์ปกลับจุดเดิมแล้ว', Duration = 2 })
+                end
+            end
+        else
+            if type(Notify) == "function" then
+                Notify({ Title = 'Error', Desc = 'ยังไม่มีจุดที่เซฟไว้', Duration = 2 })
+            end
+        end
+    end
+})
+
 -- ==================== Keybind TAB UI ====================
 local MovementKeybindSection = KeybindTab:Section({ Title = "Movement Keybinds", Icon = "command" })
 
