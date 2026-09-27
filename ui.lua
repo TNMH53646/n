@@ -1394,6 +1394,188 @@ TrackingSection:Toggle({
     end
 })
 
+-- ============================================================
+-- PERSISTENT WAYPOINT SYSTEM (SEPARATED BY PLACE ID)
+-- ============================================================
+local HttpService = game:GetService("HttpService")
+local PlaceId = tostring(game.PlaceId)
+local FolderName = "Script_Waypoints"
+local FilePath = FolderName .. "/" .. PlaceId .. ".json"
+local savedCFrame = nil
+local isPointSaved = false
+local waypointsData = {}
+local currentInputName = ""
+local selectedWaypointName = ""
+
+-- ------------------------------------------------------------
+-- ฟังก์ชันสำหรับ บันทึก / โหลด ไฟล์ (แยกตามแมพ)
+-- ------------------------------------------------------------
+local function ensureFolder()
+    if isfolder and not isfolder(FolderName) then
+        pcall(makefolder, FolderName)
+    end
+end
+
+local function saveWaypointsToFile()
+    ensureFolder()
+    if writefile then
+        pcall(function()
+            local json = HttpService:JSONEncode(waypointsData)
+            writefile(FilePath, json)
+        end)
+    end
+end
+
+local function loadWaypointsFromFile()
+    ensureFolder()
+    if isfile and readfile and isfile(FilePath) then
+        pcall(function()
+            local content = readfile(FilePath)
+            local decoded = HttpService:JSONDecode(content)
+            if type(decoded) == "table" then
+                waypointsData = decoded
+            end
+        end)
+    end
+end
+
+-- ดึงรายชื่อ Waypoint ทั้งหมดมาทำเป็นตารางสำหรับ Dropdown
+local function getWaypointNamesList()
+    local names = {}
+    for name, _ in pairs(waypointsData) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+    return names
+end
+
+-- โหลดข้อมูลที่เคยเซฟไว้ในแมพนี้ทันทีที่รันสคริปต์
+loadWaypointsFromFile()
+
+-- ------------------------------------------------------------
+-- สร้าง UI Control ใน LocalPlayerTab
+-- ------------------------------------------------------------
+local WaypointSection = TPTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
+
+-- 1. ช่องพิมพ์ชื่อจุด
+WaypointSection:Input({
+    Title = "Waypoint Name",
+    Desc = "พิมพ์ชื่อตำแหน่งที่ต้องการเซฟ (เช่น 'จุดฟาร์ม', 'บอส')",
+    Placeholder = "พิมพ์ชื่อจุดที่นี่...",
+    Callback = function(text)
+        currentInputName = text
+    end
+})
+
+-- ตัวแปรอ้างอิง Dropdown เพื่อใช้สั่งอัปเดตข้อมูลย้อนหลัง
+local waypointDropdown
+
+-- 2. ปุ่มเซฟพิกัดปัจจุบัน
+WaypointSection:Button({
+    Title = "Save Current Position",
+    Desc = "เซฟจุดปัจจุบันด้วยชื่อที่พิมพ์ไว้ข้างบน",
+    Callback = function()
+        if currentInputName == "" or string.gsub(currentInputName, "%s+", "") == "" then
+            if type(Notify) == "function" then
+                Notify({ Title = 'Error', Desc = 'กรุณาพิมพ์ชื่อจุดก่อนทำการเซฟ!', Duration = 2 })
+            end
+            return
+        end
+
+        local char = p.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        
+        if root then
+            -- เซฟพิกัดและมุมหมุนตัวละคร (CFrame) เป็น Array
+            local cf = root.CFrame
+            waypointsData[currentInputName] = { cf:GetComponents() }
+            
+            -- บันทึกลงไฟล์
+            saveWaypointsToFile()
+            
+            -- อัปเดตรายชื่อใน Dropdown
+            if waypointDropdown then
+                pcall(function()
+                    waypointDropdown:SetValues(getWaypointNamesList())
+                end)
+            end
+
+            if type(Notify) == "function" then
+                Notify({ Title = 'Saved!', Desc = 'เซฟจุด "' .. currentInputName .. '" เรียบร้อยแล้ว', Duration = 2 })
+            end
+        end
+    end
+})
+
+-- 3. Dropdown เลือกจุดที่เคยเซฟไว้
+waypointDropdown = WaypointSection:Dropdown({
+    Title = "Select Waypoint",
+    Desc = "เลือกจุดที่ต้องการเทเลพอร์ตไป",
+    Values = getWaypointNamesList(),
+    Value = "",
+    Callback = function(val)
+        selectedWaypointName = val
+    end
+})
+
+-- 4. ปุ่ม Teleport ไปยังจุดที่เลือก
+WaypointSection:Button({
+    Title = "Teleport to Selected",
+    Desc = "วาร์ปไปยังจุดที่เลือกไว้ใน Dropdown",
+    Callback = function()
+        if selectedWaypointName == "" or not waypointsData[selectedWaypointName] then
+            if type(Notify) == "function" then
+                Notify({ Title = 'Error', Desc = 'กรุณาเลือกจุดจาก Dropdown ก่อน!', Duration = 2 })
+            end
+            return
+        end
+
+        local char = p.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        
+        if root then
+            local cfData = waypointsData[selectedWaypointName]
+            root.CFrame = CFrame.new(unpack(cfData))
+            
+            if type(Notify) == "function" then
+                Notify({ Title = 'Teleported!', Desc = 'วาร์ปไป "' .. selectedWaypointName .. '" เรียบร้อย', Duration = 2 })
+            end
+        end
+    end
+})
+
+-- 5. ปุ่มลบจุดที่เลือก
+WaypointSection:Button({
+    Title = "Delete Selected Waypoint",
+    Desc = "ลบจุดที่เลือกอยู่ออกจากรายการ",
+    Callback = function()
+        if selectedWaypointName == "" or not waypointsData[selectedWaypointName] then
+            if type(Notify) == "function" then
+                Notify({ Title = 'Error', Desc = 'กรุณาเลือกจุดที่ต้องการลบ!', Duration = 2 })
+            end
+            return
+        end
+
+        local deletedName = selectedWaypointName
+        waypointsData[deletedName] = nil
+        selectedWaypointName = ""
+
+        -- บันทึกไฟล์ใหม่
+        saveWaypointsToFile()
+
+        -- อัปเดต Dropdown
+        if waypointDropdown then
+            pcall(function()
+                waypointDropdown:SetValues(getWaypointNamesList())
+            end)
+        end
+
+        if type(Notify) == "function" then
+            Notify({ Title = 'Deleted!', Desc = 'ลบจุด "' .. deletedName .. '" ออกแล้ว', Duration = 2 })
+        end
+    end
+})
+
 -- ==================== Local Player TAB UI ====================
 local MovementSection = LocalPlayerTab:Section({ Title = "Movement System", Icon = "move" })
 
@@ -1438,82 +1620,6 @@ MovementSection:Toggle({
             startFly()
         else
             stopFly()
-        end
-    end
-})
-
-local savedCFrame = nil
-local isPointSaved = false
-
-local WaypointSection = LocalPlayerTab:Section({ Title = "Position Waypoint", Icon = "map-pin" })
-
--- 1. แบบ Toggle (กดเปิด = เซฟ | กดปิด = วาร์ปกลับ)
-WaypointSection:Toggle({
-    Title = "Save / Teleport Toggle",
-    Desc = "เปิดครั้งแรก = เซฟจุดปัจจุบัน | ปิด Toggle = วาร์ปกลับจุดที่เซฟ",
-    Value = false,
-    Callback = function(state)
-        if state then
-            -- กดเปิดครั้งแรก: บันทึกพิกัดปัจจุบัน
-            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                savedCFrame = p.Character.HumanoidRootPart.CFrame
-                isPointSaved = true
-                
-                if type(Notify) == "function" then
-                    Notify({ Title = 'Position Saved', Desc = 'บันทึกจุดสำเร็จ! (ปิด Toggle เพื่อวาร์ปกลับ)', Duration = 2.5 })
-                end
-            end
-        else
-            -- กดปิดอีกรอบ: วาร์ปกลับพิกัดที่บันทึกไว้
-            if isPointSaved and savedCFrame then
-                if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    p.Character.HumanoidRootPart.CFrame = savedCFrame
-                    
-                    if type(Notify) == "function" then
-                        Notify({ Title = 'Teleported', Desc = 'วาร์ปกลับมาจุดที่บันทึกเรียบร้อย', Duration = 2 })
-                    end
-                end
-            else
-                if type(Notify) == "function" then
-                    Notify({ Title = 'Warning', Desc = 'ยังไม่ได้ทำการบันทึกจุด!', Duration = 2 })
-                end
-            end
-        end
-    end
-})
-
--- 2. แบบปุ่มกดแยก (แถมให้เผื่ออยากกดเซฟซ้ำ หรือวาร์ปรัวๆ โดยไม่ต้องสลับ Toggle)
-WaypointSection:Button({
-    Title = "Save Current Position",
-    Desc = "กดเพื่อบันทึกจุดที่ยืนอยู่ตอนนี้",
-    Callback = function()
-        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            savedCFrame = p.Character.HumanoidRootPart.CFrame
-            isPointSaved = true
-            
-            if type(Notify) == "function" then
-                Notify({ Title = 'Saved!', Desc = 'เซฟจุดสำเร็จ', Duration = 2 })
-            end
-        end
-    end
-})
-
-WaypointSection:Button({
-    Title = "Teleport To Saved Position",
-    Desc = "กดเพื่อวาร์ปไปยังจุดที่บันทึกไว้ล่าสุด",
-    Callback = function()
-        if isPointSaved and savedCFrame then
-            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                p.Character.HumanoidRootPart.CFrame = savedCFrame
-                
-                if type(Notify) == "function" then
-                    Notify({ Title = 'Teleported!', Desc = 'วาร์ปกลับจุดเดิมแล้ว', Duration = 2 })
-                end
-            end
-        else
-            if type(Notify) == "function" then
-                Notify({ Title = 'Error', Desc = 'ยังไม่มีจุดที่เซฟไว้', Duration = 2 })
-            end
         end
     end
 })
