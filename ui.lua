@@ -1319,7 +1319,7 @@ end
 
 loadWaypointsFromFile()
 
-local WaypointSection = LocalPlayerTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
+local WaypointSection = TPTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
 
 WaypointSection:Input({
     Title = "Waypoint Name",
@@ -1419,6 +1419,113 @@ WaypointSection:Button({
         saveWaypointsToFile()
         rebuildDropdown()
         notify("Deleted", "ลบจุด: " .. deleted)
+    end
+})
+
+-- ==================== DRAG PLAYER SYSTEM ====================
+local dragTargetName = ""
+local weldConstraint = nil
+local dragNoclipConn = nil
+
+local function setTargetNoclip(targetName, state)
+    local target = players:FindFirstChild(targetName)
+    if not target or not target.Character then return end
+    for _, part in pairs(target.Character:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = not state end
+    end
+end
+
+local function attachPlayerToUs(targetName)
+    local target = players:FindFirstChild(targetName)
+    if not target or not target.Character then return end
+    local myHRP  = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local tgtHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP or not tgtHRP then return end
+
+    -- noclip target ตลอดเวลาที่ weld อยู่
+    setTargetNoclip(targetName, true)
+    if dragNoclipConn then dragNoclipConn:Disconnect() end
+    dragNoclipConn = rs.Stepped:Connect(function()
+        if weldConstraint then
+            setTargetNoclip(targetName, true)
+        end
+    end)
+
+    weldConstraint = Instance.new("WeldConstraint")
+    weldConstraint.Part0 = myHRP
+    weldConstraint.Part1 = tgtHRP
+    weldConstraint.Parent = myHRP
+end
+
+local function detachPlayer(targetName)
+    if weldConstraint then weldConstraint:Destroy(); weldConstraint = nil end
+    if dragNoclipConn then dragNoclipConn:Disconnect(); dragNoclipConn = nil end
+    setTargetNoclip(targetName, false)
+end
+
+-- ==================== DRAG PLAYER UI ====================
+local DragSection = -- ใส่ Tab ที่ต้องการ เช่น TPTab หรือ MiscTab
+    TPTab:Section({ Title = "Drag Player", Icon = "link" })
+
+local dragDropdown = DragSection:Dropdown({
+    Title = "Select Target Player",
+    Desc  = "เลือกผู้เล่นที่ต้องการลาก",
+    Values = getPlayerList(),
+    Value  = "",
+    Callback = function(v)
+        dragTargetName = v
+    end
+})
+
+DragSection:Button({
+    Title = "Refresh Player List",
+    Desc  = "อัปเดตรายชื่อผู้เล่น",
+    Callback = function()
+        pcall(function() dragDropdown:Refresh(getPlayerList()) end)
+    end
+})
+
+-- Toggle 1: Noclip ตัวเอง (บินทะลุสิ่งของได้)
+DragSection:Toggle({
+    Title = "Noclip (Self)",
+    Desc  = "ทะลุสิ่งของสำหรับตัวเอง ระหว่างลากผู้เล่น",
+    Value = false,
+    Callback = function(state)
+        setNoclip(state)
+    end
+})
+
+-- Toggle 2: Attach target มาติดเรา
+DragSection:Toggle({
+    Title = "Attach Target to Us",
+    Desc  = "เชื่อม Weld ให้ target ติดตามเราทุกที่",
+    Value = false,
+    Callback = function(state)
+        if dragTargetName == "" or dragTargetName == "None" then
+            notify("Error", "กรุณาเลือกผู้เล่นก่อน!")
+            return
+        end
+        if state then
+            attachPlayerToUs(dragTargetName)
+            notify("Attached", "เชื่อม " .. dragTargetName .. " เรียบร้อย")
+        else
+            detachPlayer(dragTargetName)
+            notify("Detached", "ปล่อย " .. dragTargetName .. " เรียบร้อย")
+        end
+    end
+})
+
+-- Toggle 3: Fly (ใช้ fly system ที่มีอยู่แล้ว)
+DragSection:Toggle({
+    Title = "Fly (Drag Mode)",
+    Desc  = "บินพา target ไปด้วย — ปิดเมื่อถึงจุดหมาย",
+    Value = false,
+    Callback = function(state)
+        if state then
+            startFly()
+        else
+            stopFly()
+        end
     end
 })
 
