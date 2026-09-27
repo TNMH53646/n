@@ -9,6 +9,8 @@ local ProximityService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local p = game:GetService("Players").LocalPlayer
 
 -- Anti AFK
 localPlayer.Idled:Connect(function()
@@ -284,6 +286,141 @@ function AntiFling.Stop()
     end
 end
 
+local noclipEnabled = false
+local noclipSteppedConn = nil
+
+local function setNoclip(state)
+    noclipEnabled = state
+    if state then
+        if not noclipSteppedConn then
+            noclipSteppedConn = RunService.Stepped:Connect(function()
+                if noclipEnabled and p.Character then
+                    for _, part in pairs(p.Character:GetDescendants()) do
+                        if part:IsA('BasePart') then 
+                            part.CanCollide = false 
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        if noclipSteppedConn then
+            noclipSteppedConn:Disconnect()
+            noclipSteppedConn = nil
+        end
+        local char = p.Character
+        if char then
+            local hum = char:FindFirstChildOfClass('Humanoid')
+            if hum then 
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp) 
+            end
+        end
+    end
+end
+
+-- ============================================================
+-- ตัวแปรและฟังก์ชันสำหรับ Infinite Jump
+-- ============================================================
+local infiniteJumpEnabled = false
+local jumpConnection = nil
+
+local function setInfiniteJump(state)
+    infiniteJumpEnabled = state
+    
+    if infiniteJumpEnabled then
+        if not jumpConnection then
+            jumpConnection = game:GetService("UserInputService").JumpRequest:Connect(function()
+                if infiniteJumpEnabled and p and p.Character then
+                    local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end
+                end
+            end)
+        end
+    else
+        if jumpConnection then
+            jumpConnection:Disconnect()
+            jumpConnection = nil
+        end
+    end
+end
+
+-- ============================================================
+-- ตัวแปรและฟังก์ชันสำหรับ Fly System
+-- ============================================================
+local flySpeed = 50
+local bodyGyro = nil
+local bodyVelocity = nil
+local flyConnection = nil
+local flyControls = nil
+
+local function startFly()
+    local character = p.Character
+    if not character or not character:FindFirstChild('HumanoidRootPart') then return end
+
+    local rootPart = character.HumanoidRootPart
+    local humanoid = character:FindFirstChildOfClass('Humanoid')
+
+    if humanoid then humanoid.PlatformStand = true end
+
+    bodyGyro = Instance.new('BodyGyro', rootPart)
+    bodyGyro.P = 9e4
+    bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bodyGyro.CFrame = rootPart.CFrame
+
+    bodyVelocity = Instance.new('BodyVelocity', rootPart)
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+    if not flyControls then
+        local ok, result = pcall(function()
+            local playerModule = require(p.PlayerScripts:WaitForChild('PlayerModule', 5))
+            return playerModule:GetControls()
+        end)
+        if ok then flyControls = result end
+    end
+
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not rootPart or not rootPart.Parent then return end
+
+        local camera = workspace.CurrentCamera
+        bodyGyro.CFrame = camera.CFrame
+
+        if flyControls then
+            local moveVector = flyControls:GetMoveVector()
+            local moveDirection = (camera.CFrame.LookVector * -moveVector.Z) + (camera.CFrame.RightVector * moveVector.X)
+
+            if moveDirection.Magnitude > 0 then
+                bodyVelocity.Velocity = moveDirection.Unit * flySpeed
+            else
+                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end)
+end
+
+local function stopFly()
+    local character = p.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass('Humanoid')
+        if humanoid then humanoid.PlatformStand = false end
+    end
+
+    if flyConnection then 
+        flyConnection:Disconnect()
+        flyConnection = nil 
+    end
+    if bodyGyro then 
+        bodyGyro:Destroy()
+        bodyGyro = nil 
+    end
+    if bodyVelocity then 
+        bodyVelocity:Destroy()
+        bodyVelocity = nil 
+    end
+end
+
 -- ==================== UI INITIALIZATION ====================
 local success, WindUI = pcall(function()
     return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
@@ -314,6 +451,7 @@ local MainTab = Window:Tab({ Title = "Main", Icon = "bird", Locked = false })
 local AimbotTab = Window:Tab({ Title = "Aimbot", Icon = "crosshair", Locked = false })
 local ESPTab = Window:Tab({ Title = "ESP", Icon = "eye", Locked = false })
 local TPTab = Window:Tab({ Title = "Teleport", Icon = "map-pin", Locked = false })
+local LocalPlayerTab = Window:Tab({ Title = "Local Player", Icon = "user" })
 local MiscTab = Window:Tab({ Title = "Misc", Icon = "ellipsis", Locked = false })
 
 -- ==================== MAIN TAB UI ====================
@@ -1254,6 +1392,55 @@ TrackingSection:Toggle({
         end
     end
 })
+
+-- ==================== Local Player TAB UI ====================
+local MovementSection = LocalPlayerTab:Section({ Title = "Movement System", Icon = "move" })
+
+MovementSection:Toggle({
+    Title = "Noclip",
+    Desc = "เดินทะลุกำแพงและสิ่งกีดขวางได้",
+    Value = false,
+    Callback = function(state)
+        setNoclip(state)
+    end
+})
+
+MovementSection:Toggle({
+    Title = "Infinite Jump",
+    Desc = "กระโดดบนอากาศได้อย่างต่อเนื่องไม่จำกัด",
+    Value = false,
+    Callback = function(state)
+        setInfiniteJump(state)
+    end
+})
+
+MovementSection:Slider({
+    Title = "Fly Speed",
+    Desc = "ปรับความเร็วในการบิน",
+    Value = {
+        Min = 10,
+        Max = 200,
+        Default = 50,
+    },
+    Step = 1,
+    Callback = function(val)
+        flySpeed = tonumber(val) or 50
+    end
+})
+
+MovementSection:Toggle({
+    Title = "Fly",
+    Desc = "บินอย่างอิสระ (รองรับ WASD บน PC และ Joystick บนมือถือ)",
+    Value = false,
+    Callback = function(state)
+        if state then
+            startFly()
+        else
+            stopFly()
+        end
+    end
+})
+
 -- ==================== MISC TAB UI ====================
 local SpeedSection = MiscTab:Section({ Title = "Speed Controls", Icon = "gauge" })
 SpeedSection:Input({
