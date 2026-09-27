@@ -1394,12 +1394,12 @@ TrackingSection:Toggle({
     end
 })
 
--- ============================================================
+-- ------------------------------------------------------------
 -- PERSISTENT WAYPOINT SYSTEM (SEPARATED BY PLACE ID)
--- ============================================================
+-- ------------------------------------------------------------
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local p = Players.LocalPlayer  -- define locally if not already defined above
+local p = Players.LocalPlayer
 
 local PlaceId = tostring(game.PlaceId)
 local FolderName = "Script_Waypoints"
@@ -1410,7 +1410,7 @@ local currentInputName = ""
 local selectedWaypointName = ""
 
 -- ------------------------------------------------------------
--- File Save / Load (per map)
+-- File Save / Load
 -- ------------------------------------------------------------
 local function ensureFolder()
     if isfolder and not isfolder(FolderName) then
@@ -1422,8 +1422,7 @@ local function saveWaypointsToFile()
     ensureFolder()
     if writefile then
         pcall(function()
-            local json = HttpService:JSONEncode(waypointsData)
-            writefile(FilePath, json)
+            writefile(FilePath, HttpService:JSONEncode(waypointsData))
         end)
     end
 end
@@ -1432,8 +1431,7 @@ local function loadWaypointsFromFile()
     ensureFolder()
     if isfile and readfile and isfile(FilePath) then
         pcall(function()
-            local content = readfile(FilePath)
-            local decoded = HttpService:JSONDecode(content)
+            local decoded = HttpService:JSONDecode(readfile(FilePath))
             if type(decoded) == "table" then
                 waypointsData = decoded
             end
@@ -1443,26 +1441,14 @@ end
 
 local function getWaypointNamesList()
     local names = {}
-    for name, _ in pairs(waypointsData) do
+    for name in pairs(waypointsData) do
         table.insert(names, name)
     end
     table.sort(names)
-
     if #names == 0 then
         table.insert(names, "ไม่มีจุดเซฟ")
     end
-
     return names
-end
-
--- FIX: helper that safely refreshes dropdown Values AND resets displayed Value
-local function refreshDropdown()
-    if not waypointDropdown then return end
-    local names = getWaypointNamesList()
-    pcall(function()
-        waypointDropdown:Set(names)         -- update the list
-        waypointDropdown:SetValue(names[1]) -- reset visual selection to first item
-    end)
 end
 
 local function notify(title, desc, duration)
@@ -1476,7 +1462,7 @@ loadWaypointsFromFile()
 -- ------------------------------------------------------------
 -- UI
 -- ------------------------------------------------------------
-local WaypointSection = TPTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
+local WaypointSection = LocalPlayerTab:Section({ Title = "Saved Waypoints (Map Specific)", Icon = "map-pin" })
 
 WaypointSection:Input({
     Title = "Waypoint Name",
@@ -1487,13 +1473,49 @@ WaypointSection:Input({
     end
 })
 
-local waypointDropdown  -- forward declare so Save button can reference it
+-- ------------------------------------------------------------
+-- FIX: Dropdown container — rebuild instead of :Set()
+-- ------------------------------------------------------------
+local dropdownContainer = WaypointSection  -- section ที่จะใส่ dropdown
 
+local function rebuildDropdown()
+    selectedWaypointName = ""
+
+    if waypointDropdown then
+        pcall(function()
+            waypointDropdown:Set(getWaypointNamesList())  -- ใช้แค่ :Set() อย่างเดียว
+        end)
+    end
+end
+    waypointDropdown = nil
+    selectedWaypointName = ""
+
+    -- สร้างใหม่พร้อมรายการล่าสุด
+    waypointDropdown = dropdownContainer:Dropdown({
+        Title = "Select Waypoint",
+        Desc = "เลือกจุดที่ต้องการเทเลพอร์ต",
+        Values = getWaypointNamesList(),
+        Value = "",
+        Callback = function(val)
+            if val ~= "ไม่มีจุดเซฟ" then
+                selectedWaypointName = val
+            else
+                selectedWaypointName = ""
+            end
+        end
+    })
+end
+
+-- สร้างครั้งแรก
+rebuildDropdown()
+
+-- ------------------------------------------------------------
+-- Buttons
+-- ------------------------------------------------------------
 WaypointSection:Button({
     Title = "Save Current Position",
     Desc = "เซฟจุดปัจจุบันด้วยชื่อที่พิมพ์ไว้ข้างบน",
     Callback = function()
-        -- FIX: trim whitespace properly
         local trimmed = currentInputName:match("^%s*(.-)%s*$")
         if trimmed == "" then
             notify("Error", "กรุณาพิมพ์ชื่อจุดก่อน!")
@@ -1504,11 +1526,9 @@ WaypointSection:Button({
         local root = char and char:FindFirstChild("HumanoidRootPart")
 
         if root then
-            -- FIX: store as individual numbers, not nested array-in-array
-            local c = {root.CFrame:GetComponents()}
-            waypointsData[trimmed] = c
+            waypointsData[trimmed] = { root.CFrame:GetComponents() }
             saveWaypointsToFile()
-            refreshDropdown()
+            rebuildDropdown()  -- rebuild แทน :Set()
             notify("Saved!", "เซฟจุด: " .. trimmed)
         else
             notify("Error", "ไม่พบตัวละคร!")
@@ -1516,30 +1536,12 @@ WaypointSection:Button({
     end
 })
 
-waypointDropdown = WaypointSection:Dropdown({
-    Title = "Select Waypoint",
-    Desc = "เลือกจุดที่ต้องการเทเลพอร์ต",
-    Values = getWaypointNamesList(),
-    Value = "",
-    Callback = function(val)
-        if val ~= "ไม่มีจุดเซฟ" then
-            selectedWaypointName = val
-        else
-            selectedWaypointName = ""
-        end
-    end
-})
-
 WaypointSection:Button({
-    Title = "Refresh Waypoints",
-    Desc = "กดเพื่อรีเฟรชรายชื่อใน Dropdown ล่าสุด",
+    Title = "🔄 Refresh Waypoints",
+    Desc = "กดเพื่อรีเฟรช Dropdown ใหม่",
     Callback = function()
-        local ok, err = pcall(refreshDropdown)
-        if ok then
-            notify("Refreshed", "รีเฟรชรายชื่อจุดเรียบร้อย", 1.5)
-        else
-            notify("Error", "รีเฟรชไม่สำเร็จ: " .. tostring(err))
-        end
+        rebuildDropdown()
+        notify("Refreshed", "รีเฟรชรายชื่อจุดเรียบร้อย", 1.5)
     end
 })
 
@@ -1556,9 +1558,7 @@ WaypointSection:Button({
         local root = char and char:FindFirstChild("HumanoidRootPart")
 
         if root then
-            -- FIX: unpack the flat number list correctly
-            local components = waypointsData[selectedWaypointName]
-            root.CFrame = CFrame.new(table.unpack(components))
+            root.CFrame = CFrame.new(table.unpack(waypointsData[selectedWaypointName]))
         else
             notify("Error", "ไม่พบตัวละคร!")
         end
@@ -1576,9 +1576,8 @@ WaypointSection:Button({
 
         local deleted = selectedWaypointName
         waypointsData[deleted] = nil
-        selectedWaypointName = ""
         saveWaypointsToFile()
-        refreshDropdown()
+        rebuildDropdown()  -- rebuild แทน :Set()
         notify("Deleted", "ลบจุด: " .. deleted)
     end
 })
