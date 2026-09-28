@@ -1534,3 +1534,51 @@ end)
 -- ==================== FINAL ====================
 print("BlackCrown-X v2 (UI Reorganized + Action Bottom Bar) loaded")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
+-- ==================== FREE MOUSE (กด B สลับ เปิด/ปิด) ====================
+-- ห่อด้วย task.spawn เพื่อไม่ให้ชนลิมิตตัวแปร local 200 ตัวของสคริปต์หลัก
+task.spawn(function()
+    local FM = { on = false, prevBehavior = nil, prevIcon = nil, hb = nil }
+
+    -- เกมล็อกเมาส์ใหม่ทุกเฟรม เลยต้องบังคับ Default ทับซ้ำทุกเฟรม
+    local function force()
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
+
+    local function setFree(state)
+        if state == FM.on then return end
+        FM.on = state
+
+        if state then
+            -- จำค่าเดิมไว้ก่อน แล้วเริ่มบังคับทับ
+            FM.prevBehavior = UserInputService.MouseBehavior
+            FM.prevIcon = UserInputService.MouseIconEnabled
+
+            pcall(function() RunService:UnbindFromRenderStep("BCX_FreeMouse") end)
+            RunService:BindToRenderStep("BCX_FreeMouse", Enum.RenderPriority.Last.Value, force)
+            if FM.hb then FM.hb:Disconnect() end
+            FM.hb = RunService.Heartbeat:Connect(force)
+            force()
+        else
+            -- หยุดบังคับ แล้วคืนค่าเดิม
+            pcall(function() RunService:UnbindFromRenderStep("BCX_FreeMouse") end)
+            if FM.hb then FM.hb:Disconnect(); FM.hb = nil end
+            UserInputService.MouseBehavior = FM.prevBehavior or Enum.MouseBehavior.Default
+            UserInputService.MouseIconEnabled = (FM.prevIcon ~= false)
+        end
+
+        pcall(function()
+            WindUI:Notify({
+                Title = "Free Mouse",
+                Content = state and "เปิด — เมาส์อิสระ" or "ปิด — กลับสภาพเดิม",
+                Duration = 2,
+            })
+        end)
+    end
+
+    UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode ~= Enum.KeyCode.Y then return end
+        if UserInputService:GetFocusedTextBox() then return end -- กำลังพิมพ์อยู่ ไม่สลับ
+        setFree(not FM.on)
+    end)
+end)
