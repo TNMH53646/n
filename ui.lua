@@ -701,24 +701,25 @@ local function removeESP(plr)
     end
 end
 
-local function applyESPToCharacter(plr, charModel)
-    removeESP(plr)
-    if not charModel then return end
-    local hrpTarget = charModel:WaitForChild("HumanoidRootPart", 5)
-    local humanoidTarget = charModel:WaitForChild("Humanoid", 5)
-    if not hrpTarget or not humanoidTarget then return end
+-- หาตัวละครปัจจุบันของผู้เล่นทุกเฟรม (รองรับ StreamingEnabled)
+local function resolveCharacter(plr)
+    local char = plr.Character
+    if not (char and char.Parent) then
+        local w = workspace:FindFirstChild(plr.Name)
+        char = (w and w:IsA("Model")) and w or nil
+    end
+    if not (char and char.Parent) then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    return char, hrp, hum
+end
 
-    local isFriend = checkIsFriend(plr)
-    local activeColor = isFriend and friendColor or espColor
+local function createESP(plr)
+    if espObjects[plr] then return end
 
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ESP_Highlight"
-    highlight.FillColor = activeColor
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 0
-    highlight.Enabled = false
-    highlight.Parent = charModel
+    local activeColor = checkIsFriend(plr) and friendColor or espColor
+    local highlight -- สร้างใหม่อัตโนมัติเมื่อตัวละครถูกสตรีมกลับมา
 
     local boxOutline, boxInline, healthBarOutline, healthBarBG, healthBarFill, healthText, nameText, micText, tracer
     if hasDrawingAPI then
@@ -735,14 +736,33 @@ local function applyESPToCharacter(plr, charModel)
         end)
     end
 
+    local function hideAll()
+        if highlight then pcall(function() highlight.Enabled = false end) end
+        for _, d in ipairs({boxOutline,boxInline,healthBarOutline,healthBarBG,healthBarFill,healthText,nameText,micText,tracer}) do
+            if d then d.Visible = false end
+        end
+    end
+
     local conn = rs.RenderStepped:Connect(function()
-        if not charModel.Parent or humanoidTarget.Health <= 0 then
-            highlight.Enabled = false
-            for _, d in ipairs({boxOutline,boxInline,healthBarOutline,healthBarBG,healthBarFill,healthText,nameText,micText,tracer}) do
-                if d then d.Visible = false end
-            end
+        local charModel, hrpTarget, humanoidTarget = resolveCharacter(plr)
+        if not charModel or humanoidTarget.Health <= 0 then
+            hideAll()
             return
         end
+
+        -- ถ้า Highlight ถูกทำลาย/ย้ายที่ตอนสตรีม ให้สร้างใหม่บนตัวละครปัจจุบัน
+        if not highlight or highlight.Parent ~= charModel then
+            if highlight then pcall(function() highlight:Destroy() end) end
+            highlight = Instance.new("Highlight")
+            highlight.Name = "ESP_Highlight"
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+            highlight.FillTransparency = 0.5
+            highlight.OutlineTransparency = 0
+            highlight.Enabled = false
+            highlight.Parent = charModel
+            if espObjects[plr] then espObjects[plr].highlight = highlight end
+        end
+
         local currentColor = checkIsFriend(plr) and friendColor or espColor
         highlight.FillColor = currentColor
         highlight.Enabled   = espHighlightEnabled
@@ -816,14 +836,16 @@ local function applyESPToCharacter(plr, charModel)
     }
 end
 
+-- คงชื่อเดิมไว้เผื่อที่อื่นเรียกใช้ (ตอนนี้ไม่ต้องรีเซ็ตทุกครั้งที่ตัวละครเปลี่ยน)
+local function applyESPToCharacter(plr, charModel)
+    createESP(plr)
+end
+
 for _, plr in ipairs(players:GetPlayers()) do
-    if plr ~= localPlayer then
-        plr.CharacterAdded:Connect(function(c) applyESPToCharacter(plr, c) end)
-        if plr.Character then task.spawn(function() applyESPToCharacter(plr, plr.Character) end) end
-    end
+    if plr ~= localPlayer then createESP(plr) end
 end
 players.PlayerAdded:Connect(function(plr)
-    plr.CharacterAdded:Connect(function(c) applyESPToCharacter(plr, c) end)
+    if plr ~= localPlayer then createESP(plr) end
 end)
 players.PlayerRemoving:Connect(function(plr)
     friendCache[plr.UserId] = nil
