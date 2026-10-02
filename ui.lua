@@ -1556,15 +1556,29 @@ end)
 -- ==================== FINAL ====================
 print("BlackCrown-X v2 (UI Reorganized + Action Bottom Bar) loaded")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
--- ==================== FREE MOUSE (กด B สลับ เปิด/ปิด) ====================
--- ห่อด้วย task.spawn เพื่อไม่ให้ชนลิมิตตัวแปร local 200 ตัวของสคริปต์หลัก
+-- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
 task.spawn(function()
-    local FM = { on = false, prevBehavior = nil, prevIcon = nil, hb = nil }
+    local FM = { on = false }
 
-    -- เกมล็อกเมาส์ใหม่ทุกเฟรม เลยต้องบังคับ Default ทับซ้ำทุกเฟรม
+    -- ระหว่างเปิดโหมด: บังคับ Default ทับทุกเฟรมเพื่อชนะกล้องของ Roblox
     local function force()
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
+    end
+
+    -- ตอนปิดโหมด: เขี่ย CameraType ไปมา บังคับให้ Roblox
+    -- รีเซ็ตสถานะล็อกเมาส์ใหม่ทั้งหมดให้ตรงกับมุมมองปัจจุบันจริงๆ
+    -- (แก้ปัญหาเมาส์ค้างล็อกตอนซูมเป็น Third Person)
+    local function resyncCamera()
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        local original = cam.CameraType
+        pcall(function() cam.CameraType = Enum.CameraType.Scriptable end)
+        task.wait()
+        pcall(function()
+            cam.CameraType = (original == Enum.CameraType.Scriptable)
+                and Enum.CameraType.Custom or original
+        end)
     end
 
     local function setFree(state)
@@ -1572,27 +1586,17 @@ task.spawn(function()
         FM.on = state
 
         if state then
-            -- จำค่าเดิมไว้ก่อน แล้วเริ่มบังคับทับ
-            FM.prevBehavior = UserInputService.MouseBehavior
-            FM.prevIcon = UserInputService.MouseIconEnabled
-
-            pcall(function() RunService:UnbindFromRenderStep("BCX_FreeMouse") end)
             RunService:BindToRenderStep("BCX_FreeMouse", Enum.RenderPriority.Last.Value, force)
-            if FM.hb then FM.hb:Disconnect() end
-            FM.hb = RunService.Heartbeat:Connect(force)
             force()
         else
-            -- หยุดบังคับ แล้วคืนค่าเดิม
             pcall(function() RunService:UnbindFromRenderStep("BCX_FreeMouse") end)
-            if FM.hb then FM.hb:Disconnect(); FM.hb = nil end
-            UserInputService.MouseBehavior = FM.prevBehavior or Enum.MouseBehavior.Default
-            UserInputService.MouseIconEnabled = (FM.prevIcon ~= false)
+            resyncCamera()
         end
 
         pcall(function()
             WindUI:Notify({
                 Title = "Free Mouse",
-                Content = state and "เปิด — เมาส์อิสระ" or "ปิด — กลับสภาพเดิม",
+                Content = state and "เปิด — เมาส์อิสระ" or "ปิด — คืนสภาพเดิม",
                 Duration = 2,
             })
         end)
@@ -1600,7 +1604,7 @@ task.spawn(function()
 
     UserInputService.InputBegan:Connect(function(input)
         if input.KeyCode ~= Enum.KeyCode.Y then return end
-        if UserInputService:GetFocusedTextBox() then return end -- กำลังพิมพ์อยู่ ไม่สลับ
+        if UserInputService:GetFocusedTextBox() then return end
         setFree(not FM.on)
     end)
 end)
