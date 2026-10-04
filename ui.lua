@@ -67,7 +67,7 @@ local function getPlayerList()
     return list
 end
 
-flingActive = false
+FlingActive = false
 SelectedFlingTarget = nil
 
 -- ============================================================
