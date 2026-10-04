@@ -1,10 +1,35 @@
--- ==================== BlackCrown-X v2 (UI Reorganized + Action Bottom Bar) ====================
--- Changes from v2:
---   1. LocalPlayerTab: รวม Fly Speed + flyToggle เข้า Movement Section เดียวกัน
---      ลำดับใหม่: Movement → Speed Lock → Auto-Save → Mobile Quick Actions
---   2. MiscTab: ย้าย SafetySection ไปท้ายสุด (Tools → Speed → Emote → Safety)
---   3. เพิ่ม SettingsTab: Quick Buttons + Action Bottom Bar + Keybind + Theme
---   4. ACTION BOTTOM BAR: ปุ่ม fixed ล่างจอ ลากไม่ได้ เพิ่ม/ลบจาก Settings ได้
+-- ==================== BlackCrown-X v3.1 ====================
+-- Changes (จาก v3):
+--   * Fly / Vehicle Fly กดครั้งเดียวทำงานทันที (ปุ่มคีย์ลัด F/G, Quick Button, สวิตช์ใน UI)
+--   * startFly ไม่รอโหลด PlayerModule แล้ว (โหลดเบื้องหลัง ใช้ WASD / MoveDirection ไปก่อน)
+--   * ปุ่มคีย์ลัด / Quick Button เรียกฟังก์ชันบินตรงๆ แล้วค่อยซิงก์สวิตช์ UI กับสีปุ่ม
+--   * Quick Button ซิงก์สีตามสถานะบินจริง (เปิด Vehicle Fly แล้ว Fly ปกติดับ ปุ่มก็ดับตาม)
+-- (ของเดิมจาก v3: UI Layout Mode, รันซ้ำล้างของเก่า, Fly แยก 2 โหมด, ปุ่ม Save ถาวร)
+
+local genv = (getgenv and getgenv()) or _G
+if genv.BCX_Instance and genv.BCX_Instance.destroy then
+    pcall(genv.BCX_Instance.destroy)
+    genv.BCX_Instance = nil
+end
+genv.BCX_Reloading = false
+
+local launch
+launch = function()
+
+-- ==================== JANITOR (เก็บทุกอย่างที่ต้องทำลายตอน reload) ====================
+local J = { conns = {}, objs = {}, extra = {}, dead = false }
+function J.track(c) if c then table.insert(J.conns, c) end return c end
+function J.obj(o) if o then table.insert(J.objs, o) end return o end
+function J.onClean(fn) table.insert(J.extra, fn) end
+function J.destroy()
+    if J.dead then return end
+    J.dead = true
+    for i = #J.extra, 1, -1 do pcall(J.extra[i]) end
+    for _, c in ipairs(J.conns) do pcall(function() c:Disconnect() end) end
+    for _, o in ipairs(J.objs) do pcall(function() o:Destroy() end) end
+    J.conns, J.objs, J.extra = {}, {}, {}
+end
+genv.BCX_Instance = { destroy = J.destroy }
 
 local players = game:GetService("Players")
 local localPlayer = players.LocalPlayer
@@ -18,21 +43,19 @@ local RunService = game:GetService("RunService")
 local p = game:GetService("Players").LocalPlayer
 
 -- Anti AFK
-localPlayer.Idled:Connect(function()
+J.track(localPlayer.Idled:Connect(function()
     VirtualUser:Button2Down(Vector2.new(0, 0), camera.CFrame)
     task.wait(1)
     VirtualUser:Button2Up(Vector2.new(0, 0), camera.CFrame)
-end)
+end))
 
 -- Instant Proximity Prompt
-ProximityService.PromptShown:Connect(function(prompt)
+J.track(ProximityService.PromptShown:Connect(function(prompt)
     prompt.HoldDuration = 0
-end)
+end))
 
 -- ==================== VARIABLES ====================
 local selectedPlayerName = ""
-local tweenBehindDistance = 5
-local isTweeningBehind = false
 local safeModeEnabled = false
 local safeModeLocation = Vector3.new(0, 50, 0)
 
@@ -68,18 +91,49 @@ local function getPlayerList()
 end
 
 local BCX = {
-    Lang = "English", Registry = {}, TabReg = {},
+    Lang = "English", Registry = {}, TabReg = {}, dead = false,
     afOn = false, afConn = nil, maxVel = 90,
     flinging = false, flingAllOn = false, flingTarget = "", flingConn = nil, flingOrigCF = nil,
 }
--- ตรวจอุปกรณ์: มือถือ/แท็บเล็ต (จอสัมผัสและไม่มีคีย์บอร์ด) = แสดงแบบมี Section, คอม = แสดงแบบหัวข้อบรรทัดเดียว
-BCX.isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- โหมด UI: Auto = ตรวจอุปกรณ์เอง, PC = หัวข้อบรรทัดเดียว, Mobile = กล่อง Section
+BCX.UIPref = "Auto"
+pcall(function()
+    if isfile and isfile("BlackCrown-X/uimode.txt") then
+        local m = readfile("BlackCrown-X/uimode.txt")
+        if m == "Auto" or m == "PC" or m == "Mobile" then BCX.UIPref = m end
+    end
+end)
+local detectedMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+BCX.isMobile = (BCX.UIPref == "Mobile") or (BCX.UIPref == "Auto" and detectedMobile)
+
 pcall(function()
     if isfile and isfile("BlackCrown-X/lang.txt") then
         local l = readfile("BlackCrown-X/lang.txt")
         if l == "Thai" or l == "English" then BCX.Lang = l end
     end
 end)
+
+-- คำอธิบาย: เปิดเป็นค่าเริ่มต้น ปิดได้ที่ Settings
+BCX.ShowDesc = true
+pcall(function()
+    if isfile and isfile("BlackCrown-X/showdesc.txt") then
+        BCX.ShowDesc = (readfile("BlackCrown-X/showdesc.txt") == "1")
+    end
+end)
+
+-- เซฟค่า -> ทำลายทุกอย่าง -> รันใหม่ (ใช้ตอนสลับ UI Layout Mode)
+function BCX.reload()
+    if genv.BCX_Reloading then return end
+    genv.BCX_Reloading = true
+    task.spawn(function()
+        pcall(function() BCX.cfg:Save() end)
+        J.destroy()
+        task.wait(0.3)
+        genv.BCX_Reloading = false
+        launch()
+    end)
+end
 
 -- ============================================================
 -- ANTI FLING COLLISION SETUP
@@ -101,21 +155,12 @@ end
 
 local function trackPlayer(a)
     if a == p then return end
-    a.CharacterAdded:Connect(setupCharacterCollision)
+    J.track(a.CharacterAdded:Connect(setupCharacterCollision))
     if a.Character then setupCharacterCollision(a.Character) end
 end
 
 for a, b in ipairs(players:GetPlayers()) do trackPlayer(b) end
-players.PlayerAdded:Connect(trackPlayer)
-
-local function safeCall(fn, state)
-    if fn then
-        local ok, err = pcall(fn, state)
-        if not ok then
-            print('QAB Error:', err)
-        end
-    end
-end
+J.track(players.PlayerAdded:Connect(trackPlayer))
 
 -- ==================== EMOTE MIRROR SYSTEM ====================
 local emoteTargetPlayerName = ""
@@ -147,7 +192,7 @@ local function stopMirroring()
     BCX.clearCopiedTracks()
 end
 
--- ก๊อปท่าทาง: เล่นแอนิเมชันเดียวกับที่เป้าหมายกำลังเล่นอยู่ (คนอื่นเห็นด้วย) แล้วซิงก์เวลาให้ตรงกัน
+-- ก๊อปท่าทาง: เล่นแอนิเมชันเดียวกับที่เป้าหมายกำลังเล่นอยู่ แล้วซิงก์เวลาให้ตรงกัน
 local function startMirroringTarget(targetPlayerName)
     stopMirroring()
     mirrorConnection = rs.Heartbeat:Connect(function()
@@ -302,9 +347,14 @@ function BCX.setAF(state)
     end
 end
 
--- ==================== FLING ====================
+-- ==================== FLING (ฟังก์ชันเดียว) ====================
+BCX.flingMode = "Selected Player"
+BCX.flingSession = 0
+
 function BCX.flingStop()
     BCX.flinging = false
+    BCX.flingAllOn = false
+    BCX.flingSession = BCX.flingSession + 1
     if BCX.flingConn then BCX.flingConn:Disconnect(); BCX.flingConn = nil end
     local hrp = getHRP()
     if hrp then
@@ -315,54 +365,76 @@ function BCX.flingStop()
     BCX.flingOrigCF = nil
 end
 
--- เริ่ม fling ผู้เล่นหนึ่งคน; onDone(flung) ถูกเรียกเมื่อจบ
-function BCX.flingStart(targetName, onDone)
-    local target = players:FindFirstChild(targetName)
+-- พุ่งชนผู้เล่น 1 คน; onDone(flung) เรียกเมื่อจบ (ไม่วาร์ปกลับ ให้ flingStop ทำตอนจบทั้งหมด)
+function BCX.flingHit(target, onDone)
     local hrp = getHRP()
-    if not target or target == localPlayer or not hrp then return false end
-    if not (target.Character and target.Character:FindFirstChild("HumanoidRootPart")) then return false end
-    BCX.flingStop()
-    BCX.flinging = true
-    BCX.flingOrigCF = hrp.CFrame
-    local t0, n = tick(), 0
-    BCX.flingConn = RunService.Heartbeat:Connect(function()
+    local tHRP0 = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp or not tHRP0 or target == localPlayer then return false end
+    if BCX.flingConn then BCX.flingConn:Disconnect(); BCX.flingConn = nil end
+
+    local startPos, t0, n, finished = tHRP0.Position, os.clock(), 0, false
+    local function finish(flung)
+        if finished then return end
+        finished = true
+        if BCX.flingConn then BCX.flingConn:Disconnect(); BCX.flingConn = nil end
+        local h = getHRP()
+        if h then h.AssemblyLinearVelocity = Vector3.zero; h.AssemblyAngularVelocity = Vector3.zero end
+        if onDone then onDone(flung) end
+    end
+    local function step()
+        if finished then return end
         local myHRP = getHRP()
-        local tChar = target.Parent and target.Character
-        local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
-        local flung = tHRP and tHRP.AssemblyLinearVelocity.Magnitude > 250
-        if not BCX.flinging or not myHRP or not tHRP or flung or (tick() - t0) > 5 then
-            BCX.flingStop()
-            if onDone then onDone(flung and true or false) end
-            return
-        end
+        local tHRP = target.Parent and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        if not BCX.flinging or not myHRP or not tHRP then finish(false); return end
+        local flung = tHRP.AssemblyLinearVelocity.Magnitude > 150 or (tHRP.Position - startPos).Magnitude > 80
+        if flung or (os.clock() - t0) > 3 then finish(flung); return end
         n = n + 1
         local off = (n % 2 == 0) and Vector3.new(0, 1.2, 0) or Vector3.new(0, -1.2, 0)
         myHRP.CFrame = CFrame.new(tHRP.Position + tHRP.AssemblyLinearVelocity * 0.12 + off) * CFrame.Angles(math.rad(90), math.rad(n * 40), 0)
         myHRP.AssemblyAngularVelocity = Vector3.new(0, 2e5, 0)
         myHRP.AssemblyLinearVelocity = Vector3.new(2e4, 2e4, 2e4)
-    end)
+    end
+    BCX.flingConn = RunService.Heartbeat:Connect(step)
+    step() -- เริ่มทันที ไม่รอเฟรมถัดไป
     return true
 end
 
-function BCX.flingAll()
-    if BCX.flingAllOn then return end
-    BCX.flingAllOn = true
-    task.spawn(function()
+-- mode: "Selected" หรือ "All"
+function BCX.flingRun(mode, onDone)
+    BCX.flingStop()
+    local hrp = getHRP()
+    if not hrp then return false end
+    local list = {}
+    if mode == "All" then
         for _, plr in ipairs(players:GetPlayers()) do
-            if not BCX.flingAllOn then break end
-            if plr ~= localPlayer then
-                local done = false
-                if BCX.flingStart(plr.Name, function() done = true end) then
-                    local t = tick()
-                    while not done and BCX.flingAllOn and (tick() - t) < 7 do task.wait(0.1) end
-                    if not done then BCX.flingStop() end
-                    task.wait(0.3)
-                end
+            if plr ~= localPlayer then table.insert(list, plr) end
+        end
+    else
+        local t = players:FindFirstChild(BCX.flingTarget or "")
+        if t and t ~= localPlayer and t.Character and t.Character:FindFirstChild("HumanoidRootPart") then
+            list[1] = t
+        end
+    end
+    if #list == 0 then return false end
+
+    BCX.flingOrigCF = hrp.CFrame
+    BCX.flinging = true
+    BCX.flingAllOn = (mode == "All")
+    local sid = BCX.flingSession
+    task.spawn(function()
+        for _, plr in ipairs(list) do
+            if sid ~= BCX.flingSession then return end
+            local done = false
+            if BCX.flingHit(plr, function() done = true end) then
+                while not done and sid == BCX.flingSession do task.wait() end
             end
         end
-        BCX.flingAllOn = false
-        BCX.flingStop()
+        if sid == BCX.flingSession then
+            BCX.flingStop()
+            if onDone then onDone() end
+        end
     end)
+    return true
 end
 
 -- ==================== NOCLIP ====================
@@ -411,64 +483,252 @@ local function setInfiniteJump(state)
     end
 end
 
--- ==================== FLY SYSTEM ====================
+-- ==================== FLY SYSTEM (แยก 2 โหมด: Fly / Vehicle Fly) ====================
+-- ใช้ระบบเดียวกัน แต่เลือกเป้าหมายต่างกันตาม flyMode:
+--  • "Normal"  → บินตัวละครเท่านั้น (HumanoidRootPart)
+--  • "Vehicle" → ต้องนั่งที่นั่งอยู่ ยกยานทั้งคัน (รถ/เรือ/วัตถุ) ไปตามทิศกล้อง
+--                ถ้ายังไม่นั่ง จะรอ ไม่บินตัวละคร
+--  • เกมที่ลบ BodyVelocity/ล็อกตัวละคร → สลับเป็นโหมด CFrame อัตโนมัติ
+--  • เปิดโหมดหนึ่ง อีกโหมดจะถูกปิดเสมอ (BCX.flySwitch)
+--  • กดครั้งเดียวทำงานทันที: ติดระบบบินในเฟรมเดียวกับที่กด ไม่รอโหลดอะไร
 local flySpeed = 50
 local bodyGyro = nil
 local bodyVelocity = nil
 local flyConnection = nil
 local flyControls = nil
 local isFlying = false
+local flyTarget = nil
+local flyMode = "Normal"        -- "Normal" | "Vehicle"
+local flyUseCFrame = false      -- สลับอัตโนมัติเมื่อ BodyVelocity ไม่ทำงาน
+local flyForceCFrame = false    -- บังคับโหมด CFrame ด้วยมือ (Toggle ใน Movement)
+local flyCollideBackup = {}
+local flyMonitor = { t = 0, exp = 0, act = 0, last = nil }
 
-local function startFly()
-    if isFlying then return end
-    isFlying = true
-    local character = p.Character
-    if not character or not character:FindFirstChild('HumanoidRootPart') then isFlying = false; return end
-    local rootPart = character.HumanoidRootPart
-    local humanoid = character:FindFirstChildOfClass('Humanoid')
-    if humanoid then humanoid.PlatformStand = true end
+local function flyDetach()
+    if bodyGyro then pcall(function() bodyGyro:Destroy() end); bodyGyro = nil end
+    if bodyVelocity then pcall(function() bodyVelocity:Destroy() end); bodyVelocity = nil end
+    for part in pairs(flyCollideBackup) do
+        if part and part.Parent then pcall(function() part.CanCollide = true end) end
+    end
+    flyCollideBackup = {}
+    flyTarget = nil
+end
 
-    bodyGyro = Instance.new('BodyGyro', rootPart)
+local function flyAttach(part, isVehicle)
+    flyDetach()
+    flyTarget = part
+
+    bodyGyro = Instance.new("BodyGyro")
     bodyGyro.P = 9e4
     bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    bodyGyro.CFrame = rootPart.CFrame
+    bodyGyro.CFrame = part.CFrame
+    bodyGyro.Parent = part
 
-    bodyVelocity = Instance.new('BodyVelocity', rootPart)
+    bodyVelocity = Instance.new("BodyVelocity")
     bodyVelocity.Velocity = Vector3.zero
     bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bodyVelocity.Parent = part
 
-    if not flyControls then
-        local ok, result = pcall(function()
-            return require(p.PlayerScripts:WaitForChild('PlayerModule', 5)):GetControls()
-        end)
-        if ok then flyControls = result end
-    end
-
-    flyConnection = RunService.RenderStepped:Connect(function()
-        if not rootPart or not rootPart.Parent then return end
-        if not bodyGyro or not bodyGyro.Parent then return end
-        if not bodyVelocity or not bodyVelocity.Parent then return end
-        local cam = workspace.CurrentCamera
-        bodyGyro.CFrame = cam.CFrame
-        if flyControls then
-            local mv = flyControls:GetMoveVector()
-            local dir = (cam.CFrame.LookVector * -mv.Z) + (cam.CFrame.RightVector * mv.X)
-            bodyVelocity.Velocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
+    -- ยานพาหนะ: ปิดการชนทั้งคัน จะได้ไม่ติดพื้น/กำแพงตอนบิน (คืนค่าตอนหยุดบิน)
+    if isVehicle then
+        local ok, parts = pcall(function() return part:GetConnectedParts(true) end)
+        if ok and parts then
+            for _, bp in ipairs(parts) do
+                if bp:IsA("BasePart") and bp.CanCollide then
+                    flyCollideBackup[bp] = true
+                    pcall(function() bp.CanCollide = false end)
+                end
+            end
         end
-    end)
+    end
+end
+
+-- อ่านทิศทางที่ผู้เล่นกด: PlayerModule → คีย์ WASD → MoveDirection ของ Humanoid
+local function getFlyInput(cam, humanoid)
+    local f, r = 0, 0
+    if flyControls then
+        local ok, mv = pcall(function() return flyControls:GetMoveVector() end)
+        if ok and mv then r = mv.X; f = -mv.Z end
+    end
+    if f == 0 and r == 0 then
+        if UserInputService:GetFocusedTextBox() == nil then
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then f = f + 1 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then f = f - 1 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then r = r + 1 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then r = r - 1 end
+        end
+    end
+    if f == 0 and r == 0 and humanoid then
+        local md = humanoid.MoveDirection
+        if md.Magnitude > 0.05 then
+            local look = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+            local right = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+            if look.Magnitude > 0.001 and right.Magnitude > 0.001 then
+                f = md:Dot(look.Unit); r = md:Dot(right.Unit)
+            end
+        end
+    end
+    local up = 0
+    if UserInputService:GetFocusedTextBox() == nil then
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then up = up + 1 end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then up = up - 1 end
+    end
+    return f, r, up
 end
 
 local function stopFly()
     if not isFlying then return end
     isFlying = false
-    local character = p.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass('Humanoid')
-        if humanoid then humanoid.PlatformStand = false end
-    end
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
-    if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
-    if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end
+    local target = flyTarget
+    flyDetach()
+    pcall(function()
+        if target and target.Parent then
+            target.AssemblyLinearVelocity = Vector3.zero
+            target.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+    local character = p.Character
+    local humanoid = character and character:FindFirstChildOfClass('Humanoid')
+    if humanoid then humanoid.PlatformStand = false end
+end
+
+local function startFly(mode)
+    if isFlying then return end
+    local character = p.Character
+    local hrp = character and character:FindFirstChild('HumanoidRootPart')
+    local humanoid = character and character:FindFirstChildOfClass('Humanoid')
+    if not hrp or not humanoid then return end
+
+    flyMode = mode or "Normal"
+    isFlying = true
+    flyUseCFrame = false
+    flyMonitor = { t = 0, exp = 0, act = 0, last = nil }
+
+    -- โหลด controls เบื้องหลัง ไม่บล็อกการเริ่มบิน (ถ้ายังไม่พร้อมจะใช้ WASD / MoveDirection แทน)
+    if not flyControls then
+        task.spawn(function()
+            local ok, result = pcall(function()
+                return require(p.PlayerScripts:WaitForChild('PlayerModule', 5)):GetControls()
+            end)
+            if ok then flyControls = result end
+        end)
+    end
+
+    -- ติดระบบบินทันทีในเฟรมเดียวกับที่กด
+    if flyMode == "Normal" then
+        humanoid.PlatformStand = true
+        flyAttach(hrp, false)
+    else
+        local seat = humanoid.SeatPart
+        if seat then flyAttach(seat.AssemblyRootPart or seat, true) end
+    end
+
+    flyConnection = RunService.RenderStepped:Connect(function(dt)
+        local char = p.Character
+        local humanoid = char and char:FindFirstChildOfClass('Humanoid')
+        local hrp = char and char:FindFirstChild('HumanoidRootPart')
+        if not humanoid or not hrp then return end
+
+        local seat = humanoid.SeatPart
+        local vRoot = seat and (seat.AssemblyRootPart or seat) or nil
+        local isVehicleMode = (flyMode == "Vehicle")
+        local target
+
+        if isVehicleMode then
+            -- โหมดยานพาหนะ: ต้องนั่งอยู่ ถ้าไม่ได้นั่งก็รอ (ไม่บินตัวละคร)
+            if not vRoot then
+                if flyTarget then flyDetach(); flyMonitor.last = nil end
+                if humanoid.PlatformStand then humanoid.PlatformStand = false end
+                return
+            end
+            target = vRoot
+        else
+            target = hrp
+        end
+
+        if target ~= flyTarget or not flyTarget or not flyTarget.Parent
+            or not bodyGyro or not bodyGyro.Parent
+            or not bodyVelocity or not bodyVelocity.Parent then
+            flyAttach(target, isVehicleMode)
+            flyMonitor.last = nil
+        end
+
+        -- โหมดปกติต้อง PlatformStand, โหมดยานห้ามเปิด (ไม่งั้นตัวละครหลุดจากที่นั่ง)
+        -- เกมบางเกมรีเซ็ตค่านี้ทุกเฟรม เลยบังคับทับทุกเฟรม
+        local wantStand = not isVehicleMode
+        if humanoid.PlatformStand ~= wantStand then humanoid.PlatformStand = wantStand end
+
+        local cam = workspace.CurrentCamera
+        local f, r, up = getFlyInput(cam, humanoid)
+        local dir = (cam.CFrame.LookVector * f) + (cam.CFrame.RightVector * r) + Vector3.new(0, up, 0)
+        local vel = dir.Magnitude > 0.001 and dir.Unit * flySpeed or Vector3.zero
+
+        bodyGyro.CFrame = cam.CFrame
+
+        if flyUseCFrame or flyForceCFrame then
+            -- โหมดสำรอง: ขยับด้วย CFrame ตรงๆ (ใช้ได้ในเกมที่บล็อก BodyVelocity)
+            bodyVelocity.Velocity = Vector3.zero
+            pcall(function()
+                target.AssemblyLinearVelocity = Vector3.zero
+                target.AssemblyAngularVelocity = Vector3.zero
+            end)
+            local rot = cam.CFrame - cam.CFrame.Position
+            target.CFrame = CFrame.new(target.Position + vel * dt) * rot
+        else
+            bodyVelocity.Velocity = vel
+            -- ตรวจว่าขยับจริงไหม ถ้าสั่งไปแต่แทบไม่ขยับ → สลับเป็นโหมด CFrame
+            local pos = target.Position
+            if flyMonitor.last and vel.Magnitude > 0 then
+                flyMonitor.exp = flyMonitor.exp + vel.Magnitude * dt
+                flyMonitor.act = flyMonitor.act + (pos - flyMonitor.last).Magnitude
+            end
+            flyMonitor.last = pos
+            flyMonitor.t = flyMonitor.t + dt
+            if flyMonitor.t >= 0.6 then
+                if flyMonitor.exp > 5 and flyMonitor.act < flyMonitor.exp * 0.3 then
+                    flyUseCFrame = true
+                end
+                flyMonitor.t, flyMonitor.exp, flyMonitor.act = 0, 0, 0
+            end
+        end
+    end)
+end
+
+-- สวิตช์ของ 2 โหมด (ประกาศตรงนี้เพื่อให้ฟังก์ชันสลับโหมดอ้างถึงได้)
+local flyToggleRef, vehFlyToggleRef
+
+-- ซิงก์สี Quick Button ให้ตรงกับสถานะบินจริง (BCX.qbSync ประกาศไว้ในส่วน Quick Buttons)
+function BCX.flyRefreshQB()
+    if BCX.qbSync then
+        BCX.qbSync("Fly", isFlying and flyMode == "Normal")
+        BCX.qbSync("Vehicle Fly", isFlying and flyMode == "Vehicle")
+    end
+end
+
+-- เปิดโหมดที่ต้องการ: ถ้าอีกโหมดกำลังบินอยู่ ปิดมัน (พร้อมดับสวิตช์) ก่อนเสมอ
+function BCX.flySwitch(mode)
+    if isFlying and flyMode == mode then return end
+    if isFlying then
+        local other = (flyMode == "Vehicle") and vehFlyToggleRef or flyToggleRef
+        if other and other.Set then pcall(function() other:Set(false) end) end
+        stopFly()
+    end
+    startFly(mode)
+    BCX.flyRefreshQB()
+end
+
+-- ปิดเฉพาะเมื่อโหมดที่สั่งปิดคือโหมดที่กำลังบินอยู่
+function BCX.flyOff(mode)
+    if isFlying and flyMode == mode then stopFly() end
+    BCX.flyRefreshQB()
+end
+
+-- ใช้กับปุ่มคีย์ลัด / Quick Button: สั่งบินตรงๆ ทันที แล้วซิงก์สวิตช์ใน UI
+function BCX.flyToggle(mode, on)
+    if on then BCX.flySwitch(mode) else BCX.flyOff(mode) end
+    local mine = (mode == "Vehicle") and vehFlyToggleRef or flyToggleRef
+    if mine and mine.Set then pcall(function() mine:Set(on) end) end
 end
 
 -- ==================== UI LOAD ====================
@@ -501,11 +761,10 @@ local Window = WindUI:CreateWindow({
     }
 })
 
-local ConfigManager = Window.ConfigManager
-local mainConfig = ConfigManager:CreateConfig("settings")
+-- config เดียวสำหรับทั้งสคริปต์ (แก้ปัญหาสร้างซ้ำชื่อ "settings" สองอัน)
+BCX.cfg = Window.ConfigManager:CreateConfig("settings")
 
 -- ==================== LANGUAGE SYSTEM (English / ไทย) ====================
--- English = ชื่อเดิมต้นฉบับ | Thai = แปลทั้งหมด | ทุกปุ่มมีคำอธิบายสั้นๆ ว่าทำอะไร
 BCX.I18N = {}
 local function E(key, th, d, dt, ph, pt)
     BCX.I18N[key] = { t = th, d = d, dt = dt, p = ph, pt = pt }
@@ -516,7 +775,7 @@ E("Main", "หลัก")
 E("Aimbot", "เล็งอัตโนมัติ")
 E("ESP", "มองทะลุ (ESP)")
 E("Teleport", "เทเลพอร์ต")
-E("Local Player", "ตัวละครของฉัน")
+E("Local Player", "ตัวละคร")
 E("Misc", "เบ็ดเตล็ด")
 E("Settings", "ตั้งค่า")
 
@@ -538,12 +797,16 @@ E("Safety", "ความปลอดภัย")
 E("Fling", "ฟลิง (ดีดผู้เล่น)")
 E("Language", "ภาษา")
 E("Quick Buttons (Draggable)", "ปุ่มลัดบนจอ (ลากได้)")
-E("Action Bottom Bar (Mobile)", "แถบปุ่มล่างจอ (มือถือ)")
 E("Keybinds", "ปุ่มคีย์ลัด")
 
 -- Language
 E("Language", "ภาษา",
   "Choose the menu language.", "เลือกภาษาของเมนู")
+E("Show Descriptions", "แสดงคำอธิบาย",
+  "Show a short description under each option.", "แสดงคำอธิบายสั้นๆ ใต้แต่ละตัวเลือก")
+E("UI Layout Mode", "รูปแบบ UI",
+  "Auto = detect device. PC = one-line headings. Mobile = boxed sections. The UI is rebuilt instantly when you change it.",
+  "Auto = ตรวจอุปกรณ์เอง, PC = หัวข้อบรรทัดเดียว, Mobile = กล่องแยกหมวด (เลือกแล้ว UI จะถูกสร้างใหม่ทันที)")
 
 -- Aimbot
 E("Enable Aimbot", "เปิดเล็งอัตโนมัติ",
@@ -559,6 +822,12 @@ E("Smoothness", "ความนุ่มของการเล็ง",
   "1 = snaps instantly. Bigger number = slower, smoother aim.",
   "1 = ล็อกทันที ยิ่งเลขมากยิ่งนุ่มและช้าลง",
   "1 = instant, 5 = smooth...", "1 = ล็อกทันที, 5 = นุ่ม...")
+E("Crosshair", "ครอสแฮร์กลางจอ",
+  "Draws a crosshair at the center of the screen.", "วาดเครื่องหมายเล็งกลางหน้าจอ")
+E("Crosshair Size", "ขนาดครอสแฮร์",
+  "Size of the crosshair.", "ขนาดของครอสแฮร์")
+E("Crosshair Color", "สีครอสแฮร์",
+  "Color of the crosshair.", "สีของครอสแฮร์")
 E("Enable FOV", "เปิดวงกลม FOV",
   "Shows a circle on screen. Aimbot only targets players inside it.",
   "แสดงวงกลมบนจอ และเล็งเฉพาะผู้เล่นที่อยู่ในวงกลม")
@@ -679,10 +948,16 @@ E("Infinite Jump", "กระโดดไม่จำกัด",
   "Jump again and again in mid-air.",
   "กระโดดซ้ำกลางอากาศได้เรื่อยๆ")
 E("Fly", "บิน",
-  "Fly freely. Move with your normal controls and camera direction.",
-  "บินอิสระ ควบคุมด้วยปุ่มเดินปกติและทิศทางกล้อง")
+  "Fly freely with your character. Move with your normal controls and camera direction. Turning this on turns Vehicle Fly off.",
+  "บินตัวละครอิสระ ควบคุมด้วยปุ่มเดินปกติและทิศทางกล้อง (เปิดอันนี้แล้ว Vehicle Fly จะปิดเอง)")
+E("Vehicle Fly", "บินพร้อมยานพาหนะ",
+  "Sit in a car/boat/object first, then fly and carry it along, moving with your camera direction. Friends sitting on it come along too. Turning this on turns normal Fly off.",
+  "นั่งบนรถ/เรือ/วัตถุก่อน แล้วยกไปด้วย ขยับตามทิศกล้องเหมือนบินปกติ เพื่อนที่นั่งอยู่บนนั้นก็ไปด้วย (เปิดอันนี้แล้ว Fly ปกติจะปิดเอง)")
+E("Fly CFrame Mode", "บินแบบ CFrame",
+  "Use if Fly doesn't move in some games. Moves you directly instead of using physics. Also turns on automatically when needed. Applies to both Fly and Vehicle Fly.",
+  "เปิดถ้าบินไม่ขยับในบางเกม ขยับตัวตรงๆ แทนฟิสิกส์ (และสลับให้เองอัตโนมัติเมื่อจำเป็น) ใช้ได้ทั้ง Fly และ Vehicle Fly")
 E("Fly Speed", "ความเร็วบิน",
-  "How fast you fly.", "ความเร็วในการบิน")
+  "How fast you fly (both Fly and Vehicle Fly).", "ความเร็วในการบิน (ใช้ร่วมกันทั้งสองโหมด)")
 E("Custom Speed", "ความเร็วที่กำหนดเอง",
   "Type the walk speed you want (normal is 16).",
   "พิมพ์ความเร็วเดินที่ต้องการ (ปกติ 16)",
@@ -709,7 +984,7 @@ E("Load Saved Settings", "โหลดค่าที่บันทึก",
 -- Misc: emotes
 E("Copy Player Movement", "ก๊อปท่าทางผู้เล่น",
   "Your character copies the selected player's movements and emotes.",
-  "ตัวละครของคุณทำท่าทางเลียนแบบผู้เล่นที่เลือก")
+  "ตัวละครทำท่าทางเลียนแบบผู้เล่นที่เลือก")
 E("Custom Emote ID", "ไอดีท่าทางที่กำหนดเอง",
   "Paste an animation ID number here.",
   "ใส่หมายเลขไอดีของแอนิเมชันที่นี่",
@@ -727,15 +1002,12 @@ E("Get TP Tool", "รับไอเทมวาร์ป",
 E("Select Fling Target", "เลือกเป้าหมาย Fling",
   "Pick the player you want to fling.",
   "เลือกผู้เล่นที่ต้องการดีดให้ลอย")
-E("Fling Player", "Fling ผู้เล่น",
-  "Spins into the selected player to launch them away, then returns you to your spot.",
-  "พุ่งหมุนชนผู้เล่นที่เลือกจนกระเด็น แล้วพากลับมาที่เดิม")
-E("Fling All", "Fling ทุกคน",
-  "Flings every player one by one, then returns you. Press Stop Fling to cancel.",
-  "ดีดผู้เล่นทุกคนทีละคน แล้วพากลับที่เดิม กด Stop Fling เพื่อยกเลิก")
-E("Stop Fling", "หยุด Fling",
-  "Stops flinging right away and returns you to your spot.",
-  "หยุดทันที และพากลับไปที่เดิม")
+E("Fling Mode", "โหมด Fling",
+  "Selected Player = fling the chosen player. All Players = fling everyone one by one.",
+  "Selected Player = ดีดคนที่เลือก, All Players = ดีดทุกคนทีละคน")
+E("Start Fling", "เริ่ม Fling",
+  "Turn ON to start. Turn OFF to stop right away and return to your spot.",
+  "เปิดเพื่อเริ่ม ปิดเพื่อหยุดทันทีและกลับที่เดิม")
 
 -- Misc: safety
 E("Safe Mode (< 50% HP TP)", "โหมดปลอดภัย (เลือด < 50% วาร์ปหนี)",
@@ -762,34 +1034,13 @@ E("Remove All Buttons", "ลบปุ่มทั้งหมด",
   "Removes every floating button.",
   "ลบปุ่มลอยทั้งหมด")
 
--- Settings: action bar
-E("Action Bottom Bar", "แถบปุ่มล่างจอ",
-  "Fixed buttons at the bottom of the screen. Tap to turn a feature on/off. Good for mobile. Cannot be dragged.",
-  "ปุ่มติดล่างจอ แตะเพื่อเปิด/ปิดฟังก์ชัน เหมาะกับมือถือ ลากไม่ได้")
-E("Add to Action Bar", "เพิ่มลงแถบล่าง",
-  "Adds the selected function to the bottom bar.",
-  "เพิ่มฟังก์ชันที่เลือกลงแถบล่างจอ")
-E("Remove from Action Bar", "ลบออกจากแถบล่าง",
-  "Removes the selected function from the bottom bar.",
-  "เอาฟังก์ชันที่เลือกออกจากแถบล่างจอ")
-E("Clear All Action Bar", "ล้างแถบล่างทั้งหมด",
-  "Removes every button from the bottom bar.",
-  "ลบปุ่มทั้งหมดออกจากแถบล่างจอ")
-E("Bottom Offset (px)", "ระยะจากขอบล่าง (px)",
-  "How far the bar sits above the bottom edge.",
-  "ระยะที่แถบลอยขึ้นจากขอบล่างจอ")
-E("Button Size (px)", "ขนาดปุ่ม (px)",
-  "Size of the bottom bar buttons.",
-  "ขนาดของปุ่มบนแถบล่าง")
-
--- Keybinds (Noclip / Infinite Jump / Fly share their toggle entries above)
-
 function BCX.title(key)
     local e = BCX.I18N[key]
     if BCX.Lang == "Thai" and e and e.t then return e.t end
     return key
 end
 function BCX.desc(key)
+    if not BCX.ShowDesc then return nil end
     local e = BCX.I18N[key]
     if not e then return nil end
     if BCX.Lang == "Thai" then return e.dt or e.d end
@@ -803,7 +1054,6 @@ function BCX.ph(key)
 end
 
 -- ---------- ข้อความแจ้งเตือน (notify) ----------
--- {English, ไทย, thaiToEnglishOnly}
 BCX.MSG = {
     {"Type a name first!", "พิมพ์ชื่อก่อน!"},
     {"Character not found!", "ไม่พบตัวละคร!"},
@@ -812,8 +1062,6 @@ BCX.MSG = {
     {"Player list refreshed", "รีเฟรชรายชื่อแล้ว"},
     {"Previous settings loaded ✅", "โหลดการตั้งค่าก่อนหน้าแล้ว ✅"},
     {"All buttons removed", "ลบปุ่มทั้งหมดแล้ว"},
-    {"Action Bar cleared", "ล้าง Action Bar ทั้งหมด"},
-    {"Function not found", "ไม่พบฟังก์ชัน"},
     {"ON — free mouse", "เปิด — เมาส์อิสระ"},
     {"OFF — back to normal", "ปิด — คืนสภาพเดิม"},
     {"Saved ✅", "บันทึกแล้ว ✅"},
@@ -825,12 +1073,9 @@ BCX.MSG = {
     {"Refreshed", "รีเฟรชแล้ว"},
     {"Dragging ", "กำลังลาก "},
     {"Released ", "ปล่อย "},
-    {"Already added", "มีอยู่แล้ว"},
     {" already has a button", " มีปุ่มแล้ว"},
     {"Added", "เพิ่มแล้ว"},
     {"Added ", "เพิ่ม "},
-    {" to Action Bar", " ที่ Action Bar"},
-    {" from Action Bar", " ออกจาก Action Bar"},
     {"Removed ", "ลบ "},
     {"Button ", "ปุ่ม "},
     {" on screen", " บนหน้าจอ"},
@@ -875,7 +1120,6 @@ function BCX.msg(s)
         end
     end
     table.sort(list, function(a, b) return #a[1] > #b[1] end)
-    -- แทนที่ทีละข้อความ (ยาวสุดก่อน) โดยกันไม่ให้แทนซ้ำบนข้อความที่แปลแล้ว
     local marks, result = {}, s
     for idx, pr in ipairs(list) do
         local token = "\0" .. idx .. "\0"
@@ -892,8 +1136,20 @@ function BCX.noWaypoint()
     return (BCX.Lang == "Thai") and "ไม่มีจุดเซฟ" or "No saved waypoints"
 end
 
--- ---------- ห่อ Tab / Section / Element เพื่อแปลภาษา ----------
+-- ---------- ห่อ Tab / Section / Element เพื่อแปลภาษา + เซฟอัตโนมัติ ----------
 local ELEMENT_METHODS = { "Toggle", "Button", "Input", "Dropdown", "Slider", "Colorpicker", "Keybind", "Paragraph" }
+
+BCX.flagUsed = {}
+-- element ที่ไม่ควรเซฟ (เป้าหมายผู้เล่น / ฟังก์ชันที่ทำงานทันที)
+BCX.NOSAVE = {
+    ["Select Target Player"]=true, ["Select Player to Track"]=true, ["Select Target"]=true,
+    ["Select Fling Target"]=true, ["Select Waypoint"]=true, ["Waypoint Name"]=true,
+    ["Search Name"]=true, ["Function"]=true, ["Language"]=true, ["Show Descriptions"]=true,
+    ["UI Layout Mode"]=true,
+    ["Drag Player"]=true, ["Start Fling"]=true, ["Copy Player Movement"]=true,
+    ["Play Custom ID Emote"]=true, ["Enable Relative Tween"]=true,
+}
+local SAVABLE = { Toggle=true, Input=true, Dropdown=true, Slider=true, Colorpicker=true, Keybind=true }
 
 function BCX.wrapSection(sec)
     for _, m in ipairs(ELEMENT_METHODS) do
@@ -912,7 +1168,24 @@ function BCX.wrapSection(sec)
                             if ph then o.Placeholder = ph end
                         end
                     end
+                    if not BCX.ShowDesc then o.Desc = nil end
+
+                    -- ทำให้ Toggle ใช้ Value เสมอ (บางโค้ดใช้ Default)
+                    if m == "Toggle" and o.Value == nil and o.Default ~= nil then o.Value = o.Default end
+
+                    -- ตั้ง Flag อัตโนมัติ เพื่อให้เซฟได้
+                    local flag = o.Flag
+                    if SAVABLE[m] and key and not BCX.NOSAVE[key] and not flag then
+                        local base = (m .. "_" .. key):gsub("[^%w]", "_")
+                        local n = (BCX.flagUsed[base] or 0) + 1
+                        BCX.flagUsed[base] = n
+                        flag = (n == 1) and base or (base .. n)
+                        o.Flag = flag
+                    end
+                    if key and BCX.NOSAVE[key] then flag = nil; o.Flag = nil end
+
                     local el = orig(self, o)
+                    if flag and el then pcall(function() BCX.cfg:Register(flag, el) end) end
                     table.insert(BCX.Registry, { el = el, key = key, kind = m })
                     return el
                 end
@@ -947,7 +1220,6 @@ function BCX.NewTab(opts)
     -- คอม: ไม่มีกล่อง Section
     local origParagraph = tab.Paragraph
     BCX.wrapSection(tab)
-    -- ไม่สร้างกล่อง Section อีกต่อไป: ใส่เป็น "หัวข้อ" บรรทัดเดียว แล้วใส่ปุ่มลงในแท็บตรงๆ
     tab.Section = function(self, so)
         so = so or {}
         local skey = so.Title
@@ -959,7 +1231,7 @@ function BCX.NewTab(opts)
     return tab
 end
 
--- ถ้า SetTitle ของ WindUI ไม่เปลี่ยนข้อความบนจอ ให้แก้ข้อความบน GUI ตรงๆ (แท็บด้านข้าง/หัวข้อ)
+-- ถ้า SetTitle ของ WindUI ไม่เปลี่ยนข้อความบนจอ ให้แก้ข้อความบน GUI ตรงๆ
 function BCX.guiRoots()
     local roots = {}
     pcall(function()
@@ -1005,7 +1277,8 @@ function BCX.apply()
             else
                 pcall(function() el:SetTitle(BCX.title(r.key)) end)
                 local d = BCX.desc(r.key)
-                if d then pcall(function() el:SetDesc(d) end) end
+                if d then pcall(function() el:SetDesc(d) end)
+                elseif not BCX.ShowDesc then pcall(function() el:SetDesc("") end) end
                 if r.kind == "Input" then
                     local ph = BCX.ph(r.key)
                     if ph then pcall(function() el:SetPlaceholder(ph) end) end
@@ -1014,6 +1287,7 @@ function BCX.apply()
         end
     end
     BCX.swapGuiText(map)
+    if BCX.onLang then pcall(BCX.onLang) end
 end
 
 function BCX.setLang(lang)
@@ -1053,11 +1327,13 @@ local function saveQuickButtons()
                 })
             end
         end
+        if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
         if writefile then writefile("BlackCrown-X/quickbuttons.json", game:GetService("HttpService"):JSONEncode(data)) end
     end)
 end
 
-local function createQuickButton(funcName, posX, posY, size, initState, onToggle)
+local function createQuickButton(funcName, posX, posY, size, initState, onToggle, opts)
+    opts = opts or {}
     posX = posX or 100; posY = posY or 100; size = size or 65; initState = initState or false
 
     if not QuickButtonGui then
@@ -1068,10 +1344,11 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
         QuickButtonGui.DisplayOrder = 999
         pcall(function() QuickButtonGui.Parent = game:GetService("CoreGui") end)
         if not QuickButtonGui.Parent then QuickButtonGui.Parent = p.PlayerGui end
+        J.obj(QuickButtonGui)
     end
 
     local btnState = initState
-    local btnData  = { funcName = funcName, state = btnState }
+    local btnData  = { funcName = funcName, state = btnState, permanent = opts.permanent }
 
     local frame = Instance.new("Frame")
     frame.Name = "QB_" .. funcName
@@ -1091,7 +1368,7 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     label.Size = UDim2.new(1,-4, 0.72, 0)
     label.Position = UDim2.new(0, 2, 0.14, 0)
     label.BackgroundTransparency = 1
-    label.Text = funcName
+    label.Text = opts.label or funcName
     label.TextColor3 = Color3.fromRGB(230,230,240)
     label.TextScaled = true
     label.Font = Enum.Font.GothamBold
@@ -1101,6 +1378,7 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     dot.Position = UDim2.new(1,-10, 0, 4)
     dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(100,100,120)
     dot.BorderSizePixel = 0
+    dot.Visible = not opts.momentary
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
 
     local dragging, dragStart, startPos = false, nil, nil
@@ -1135,6 +1413,12 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
             if dragging then
                 dragging = false; startPos = nil
                 saveQuickButtons()
+            elseif opts.momentary then
+                -- ปุ่มกดครั้งเดียว (เช่น Save): ไม่สลับสถานะ แค่กะพริบแล้วทำงาน
+                local old = frame.BackgroundColor3
+                frame.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+                task.delay(0.25, function() if frame.Parent then frame.BackgroundColor3 = old end end)
+                if onToggle then pcall(onToggle) end
             else
                 -- tap = toggle
                 btnState = not btnState
@@ -1149,14 +1433,23 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
         end
     end)
 
+    -- ให้ระบบอื่นสั่งเปลี่ยนสถานะ/สีของปุ่มได้ (ใช้ซิงก์กับสถานะบินจริง)
+    local function paint()
+        frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(35,35,45)
+        stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(80,80,100)
+        dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(100,100,120)
+    end
+    btnData.set = function(v) btnState = v; btnData.state = v; paint() end
+
     btnData.Frame = frame
+    btnData.Label = label
     table.insert(QuickButtons, btnData)
     return btnData
 end
 
 local function removeQuickButton(funcName)
     for i, btn in ipairs(QuickButtons) do
-        if btn.funcName == funcName then
+        if btn.funcName == funcName and not btn.permanent then
             pcall(function() btn.Frame:Destroy() end)
             table.remove(QuickButtons, i)
             saveQuickButtons(); return
@@ -1165,9 +1458,19 @@ local function removeQuickButton(funcName)
 end
 
 local function removeAllQuickButtons()
-    for _, btn in ipairs(QuickButtons) do pcall(function() btn.Frame:Destroy() end) end
-    QuickButtons = {}
+    local keep = {}
+    for _, btn in ipairs(QuickButtons) do
+        if btn.permanent then table.insert(keep, btn) else pcall(function() btn.Frame:Destroy() end) end
+    end
+    QuickButtons = keep
     saveQuickButtons()
+end
+
+-- ซิงก์สีปุ่มกับสถานะจริง (เช่น เปิด Vehicle Fly แล้วปุ่ม Fly ต้องดับ)
+function BCX.qbSync(name, state)
+    for _, b in ipairs(QuickButtons) do
+        if b.funcName == name and b.set and b.state ~= state then b.set(state) end
+    end
 end
 
 local function loadQuickButtons(callbackMap)
@@ -1177,181 +1480,26 @@ local function loadQuickButtons(callbackMap)
         if not raw or #raw < 3 then return end
         local ok, data = pcall(game:GetService("HttpService").JSONDecode, game:GetService("HttpService"), raw)
         if not ok or type(data) ~= "table" then return end
-        for _, btn in ipairs(QuickButtons) do pcall(function() btn.Frame:Destroy() end) end
-        QuickButtons = {}
+        local keep = {}
+        for _, btn in ipairs(QuickButtons) do
+            if btn.permanent then table.insert(keep, btn) else pcall(function() btn.Frame:Destroy() end) end
+        end
+        QuickButtons = keep
         for _, d in ipairs(data) do
-            if d.func and callbackMap[d.func] then
+            if d.func == "Save" then
+                -- ปุ่ม Save ถาวร: คืนตำแหน่งที่เคยลากไว้
+                for _, btn in ipairs(QuickButtons) do
+                    if btn.permanent and btn.Frame then
+                        btn.Frame.Position = UDim2.fromOffset(d.x or 80, d.y or 200)
+                    end
+                end
+            elseif d.func and callbackMap[d.func] then
                 local btn = createQuickButton(d.func, d.x or 100, d.y or 100, d.size or 65, d.state or false, callbackMap[d.func])
                 if d.state then pcall(callbackMap[d.func], d.state) end
             end
         end
     end)
 end
-
--- ==================== ACTION BOTTOM BAR (NEW) ====================
--- Fixed ล่างจอ ลากไม่ได้ เรียงแนวนอน
-local ActionBar = {}
-local ActionBarGui = nil
-local ActionBarFrame = nil
-local ACTION_BTN_SIZE = 64
-local ACTION_BTN_GAP  = 8
-local ACTION_BAR_BOTTOM_OFFSET = 24  -- px จากขอบล่าง
-
-local function saveActionBar()
-    pcall(function()
-        local data = {}
-        for _, btn in ipairs(ActionBar) do
-            table.insert(data, { func = btn.funcName, state = btn.state })
-        end
-        if writefile then writefile("BlackCrown-X/actionbar.json", game:GetService("HttpService"):JSONEncode(data)) end
-    end)
-end
-
-local function rebuildActionBarLayout()
-    if not ActionBarFrame then return end
-    local count = #ActionBar
-    if count == 0 then
-        ActionBarFrame.Visible = false
-        return
-    end
-    ActionBarFrame.Visible = true
-    local totalW = count * ACTION_BTN_SIZE + (count - 1) * ACTION_BTN_GAP
-    local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(800, 600)
-    ActionBarFrame.Size = UDim2.fromOffset(totalW, ACTION_BTN_SIZE)
-    ActionBarFrame.Position = UDim2.fromOffset(
-        math.floor((vp.X - totalW) / 2),
-        vp.Y - ACTION_BTN_SIZE - ACTION_BAR_BOTTOM_OFFSET
-    )
-    -- reposition each child button
-    for i, btn in ipairs(ActionBar) do
-        if btn.BtnFrame then
-            btn.BtnFrame.Position = UDim2.fromOffset((i-1) * (ACTION_BTN_SIZE + ACTION_BTN_GAP), 0)
-        end
-    end
-end
-
-local function createActionBarGui()
-    if ActionBarGui then return end
-    ActionBarGui = Instance.new("ScreenGui")
-    ActionBarGui.Name = "BCX_ActionBar"
-    ActionBarGui.ResetOnSpawn = false
-    ActionBarGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    ActionBarGui.DisplayOrder = 998
-    ActionBarGui.IgnoreGuiInset = true
-    pcall(function() ActionBarGui.Parent = game:GetService("CoreGui") end)
-    if not ActionBarGui.Parent then ActionBarGui.Parent = p.PlayerGui end
-
-    ActionBarFrame = Instance.new("Frame", ActionBarGui)
-    ActionBarFrame.Name = "BCX_ActionBarFrame"
-    ActionBarFrame.BackgroundTransparency = 1
-    ActionBarFrame.BorderSizePixel = 0
-    ActionBarFrame.Visible = false
-end
-
-local function addActionBarButton(funcName, initState, onToggle)
-    createActionBarGui()
-
-    -- ป้องกันซ้ำ
-    for _, btn in ipairs(ActionBar) do
-        if btn.funcName == funcName then return end
-    end
-
-    local btnState = initState or false
-    local btnData  = { funcName = funcName, state = btnState }
-
-    local frame = Instance.new("Frame", ActionBarFrame)
-    frame.Name = "AB_" .. funcName
-    frame.Size = UDim2.fromOffset(ACTION_BTN_SIZE, ACTION_BTN_SIZE)
-    frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(28,28,38)
-    frame.BackgroundTransparency = 0.05
-    frame.BorderSizePixel = 0
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
-    local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(70,70,90)
-    stroke.Transparency = 0.4; stroke.Thickness = 1.5
-
-    -- background glow when active
-    local glow = Instance.new("Frame", frame)
-    glow.Name = "Glow"
-    glow.Size = UDim2.new(1,0,1,0)
-    glow.BackgroundColor3 = Color3.fromRGB(0,255,80)
-    glow.BackgroundTransparency = btnState and 0.85 or 1
-    glow.BorderSizePixel = 0
-    Instance.new("UICorner", glow).CornerRadius = UDim.new(0, 14)
-
-    local label = Instance.new("TextLabel", frame)
-    label.Size = UDim2.new(1,-4, 0.72, 0)
-    label.Position = UDim2.new(0, 2, 0.15, 0)
-    label.BackgroundTransparency = 1
-    label.Text = funcName
-    label.TextColor3 = Color3.fromRGB(225,225,235)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.ZIndex = 2
-
-    local dot = Instance.new("Frame", frame)
-    dot.Size = UDim2.fromOffset(6, 6)
-    dot.Position = UDim2.new(1,-9, 0, 4)
-    dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(90,90,110)
-    dot.BorderSizePixel = 0
-    dot.ZIndex = 3
-    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-
-    -- NO DRAG — กดอย่างเดียว
-    local tapStart = 0
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            tapStart = tick()
-        end
-    end)
-    frame.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if tick() - tapStart < 0.5 then
-                btnState = not btnState
-                btnData.state = btnState
-                frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(28,28,38)
-                stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(70,70,90)
-                glow.BackgroundTransparency = btnState and 0.85 or 1
-                dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(90,90,110)
-                if onToggle then pcall(onToggle, btnState) end
-                saveActionBar()
-            end
-        end
-    end)
-
-    btnData.BtnFrame = frame
-    table.insert(ActionBar, btnData)
-    rebuildActionBarLayout()
-    saveActionBar()
-end
-
-local function removeActionBarButton(funcName)
-    for i, btn in ipairs(ActionBar) do
-        if btn.funcName == funcName then
-            pcall(function() btn.BtnFrame:Destroy() end)
-            table.remove(ActionBar, i)
-            rebuildActionBarLayout()
-            saveActionBar()
-            return
-        end
-    end
-end
-
-local function removeAllActionBar()
-    for _, btn in ipairs(ActionBar) do pcall(function() btn.BtnFrame:Destroy() end) end
-    ActionBar = {}
-    rebuildActionBarLayout()
-    saveActionBar()
-end
-
--- อัปเดตตำแหน่ง ActionBar เมื่อ viewport เปลี่ยน
-RunService.Heartbeat:Connect(function()
-    if ActionBarFrame and ActionBarFrame.Visible then
-        rebuildActionBarLayout()
-    end
-end)
 
 -- ==================== ESP SYSTEM ====================
 local espNameEnabled = false
@@ -1521,21 +1669,16 @@ local function createESP(plr)
     }
 end
 
--- คงชื่อเดิมไว้เผื่อที่อื่นเรียกใช้ (ตอนนี้ไม่ต้องรีเซ็ตทุกครั้งที่ตัวละครเปลี่ยน)
-local function applyESPToCharacter(plr, charModel)
-    createESP(plr)
-end
-
 for _, plr in ipairs(players:GetPlayers()) do
     if plr ~= localPlayer then createESP(plr) end
 end
-players.PlayerAdded:Connect(function(plr)
+J.track(players.PlayerAdded:Connect(function(plr)
     if plr ~= localPlayer then createESP(plr) end
-end)
-players.PlayerRemoving:Connect(function(plr)
+end))
+J.track(players.PlayerRemoving:Connect(function(plr)
     friendCache[plr.UserId] = nil
     removeESP(plr)
-end)
+end))
 
 -- ==================== OBJECT SEARCH ESP ====================
 local searchTargetText = ""
@@ -1592,7 +1735,7 @@ local function updateObjectESP()
     end
 end
 
-rs.RenderStepped:Connect(function()
+J.track(rs.RenderStepped:Connect(function()
     if not (exactMatchEnabled or partialMatchEnabled) then return end
     for obj, data in pairs(searchedObjects) do
         if not obj or not obj.Parent or not data.part or not data.part.Parent then
@@ -1623,7 +1766,7 @@ rs.RenderStepped:Connect(function()
             end
         end
     end
-end)
+end))
 
 -- ==================== AIMBOT ====================
 local aimbotEnabled = false
@@ -1678,7 +1821,7 @@ local function getClosestPlayerToCursor()
     return closestPlayer
 end
 
-rs.RenderStepped:Connect(function()
+J.track(rs.RenderStepped:Connect(function()
     local ml = UserInputService:GetMouseLocation()
     if fovCircle then fovCircle.Position = ml; fovCircle.Radius = fovRadius; fovCircle.Color = fovColor; fovCircle.Visible = aimbotEnabled and fovEnabled end
     if aimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
@@ -1691,7 +1834,35 @@ rs.RenderStepped:Connect(function()
             end
         end
     end
-end)
+end))
+
+-- ==================== CROSSHAIR (กลางจอ) ====================
+BCX.xhair = { on = false, size = 12, thick = 2, gap = 4, color = Color3.new(1, 1, 1) }
+function BCX.xhairUpdate()
+    local x = BCX.xhair
+    if not (BCX.xhairGui and BCX.xhairGui.Parent) then
+        local g = Instance.new("ScreenGui")
+        g.Name = "BCX_Crosshair"; g.ResetOnSpawn = false; g.IgnoreGuiInset = true; g.DisplayOrder = 998
+        pcall(function() g.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+        if not g.Parent then g.Parent = p:WaitForChild("PlayerGui") end
+        J.obj(g)
+        BCX.xhairGui, BCX.xhairParts = g, {}
+        for i = 1, 4 do
+            local f = Instance.new("Frame")
+            f.BorderSizePixel = 0
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.Parent = g
+            BCX.xhairParts[i] = f
+        end
+    end
+    local P, s, t, gp = BCX.xhairParts, x.size, x.thick, x.gap
+    P[1].Size = UDim2.fromOffset(t, s); P[1].Position = UDim2.new(0.5, 0, 0.5, -(gp + s / 2))
+    P[2].Size = UDim2.fromOffset(t, s); P[2].Position = UDim2.new(0.5, 0, 0.5,  (gp + s / 2))
+    P[3].Size = UDim2.fromOffset(s, t); P[3].Position = UDim2.new(0.5, -(gp + s / 2), 0.5, 0)
+    P[4].Size = UDim2.fromOffset(s, t); P[4].Position = UDim2.new(0.5,  (gp + s / 2), 0.5, 0)
+    for _, f in ipairs(P) do f.BackgroundColor3 = x.color end
+    BCX.xhairGui.Enabled = x.on
+end
 
 -- ==================== DRAG PLAYER ====================
 local dragTargetName = ""
@@ -1736,13 +1907,14 @@ local function startDrag(targetName)
         curTgt.CFrame = curHRP.CFrame * CFrame.new(0, 0, 2)
         setTargetNoclip(targetName, true)
     end)
-    task.wait(0.1); startFly()
+    task.wait(0.1); BCX.flySwitch("Normal")
 end
 
 local function stopDrag(targetName)
     dragActive = false
     if dragConn then dragConn:Disconnect(); dragConn = nil end
     stopFly(); cleanTargetPhysics(targetName); setTargetNoclip(targetName, false); setNoclip(false)
+    BCX.flyRefreshQB()
 end
 
 -- ==================== WAYPOINT SYSTEM ====================
@@ -1754,7 +1926,6 @@ local waypointsData = {}
 local currentInputName = ""
 local selectedWaypointName = ""
 local waypointDropdown = nil
-local isRebuildingWaypoint = false
 
 local function notify(title, desc, duration)
     pcall(function()
@@ -1797,17 +1968,16 @@ local function safeRefresh(dropdown)
     pcall(function() dropdown:Refresh(newList) end)
 end
 
--- rebuildWaypointDropdown: ย้ายไปอยู่ใน UI section (WaypointSection) ด้านล่าง
--- ใช้ pattern destroy+recreate แทน :Refresh() — ดูใน rebuildWPDrop()
-
 -- ==================== UI: AIMBOT TAB ====================
 local AimbotSection = AimbotTab:Section({ Title = "Aimbot Core", Icon = "target" })
 AimbotSection:Toggle({ Title="Enable Aimbot",    Desc="เปิดใช้งาน (คลิกขวาค้าง)", Default=false, Callback=function(s) aimbotEnabled=s end })
 AimbotSection:Toggle({ Title="Wallcheck",        Desc="ไม่ล็อกเป้าถ้ามีกำแพงบัง",  Default=false, Callback=function(s) wallCheckEnabled=s end })
 AimbotSection:Dropdown({ Title="Target Part",    Values={"Head","HumanoidRootPart"}, Value="Head", Callback=function(v) aimbotTargetPart=v end })
 AimbotSection:Input({ Title="Smoothness",        Value="1", Placeholder="1=ล็อกทันที, 5=นุ่ม...", Callback=function(v) local n=tonumber(v); if n and n>0 then aimbotSmoothness=n end end })
+AimbotSection:Toggle({ Title="Crosshair", Default=false, Callback=function(s) BCX.xhair.on=s; BCX.xhairUpdate() end })
+AimbotSection:Slider({ Title="Crosshair Size", Step=1, Value={Min=4,Max=40,Default=12}, Callback=function(v) BCX.xhair.size=tonumber(v) or 12; BCX.xhairUpdate() end })
+AimbotSection:Colorpicker({ Title="Crosshair Color", Default=Color3.new(1,1,1), Callback=function(c) BCX.xhair.color=c; BCX.xhairUpdate() end })
 
--- FOV อยู่ใน section เดียวกับ Aimbot (ไม่แยก)
 local FOVSection = AimbotTab:Section({ Title = "FOV Circle", Icon = "disc" })
 FOVSection:Toggle({ Title="Enable FOV",        Default=false, Callback=function(s) fovEnabled=s end })
 FOVSection:Input({  Title="FOV Radius",        Value="150",   Placeholder="เช่น 100, 150...", Callback=function(v) local n=tonumber(v); if n and n>0 then fovRadius=n end end })
@@ -1822,7 +1992,6 @@ ESPSettingsSection:Toggle({ Title="Health % Text",    Default=false, Callback=fu
 ESPSettingsSection:Toggle({ Title="Tracer Line",      Default=false, Callback=function(s) espTracerEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Highlight",        Default=false, Callback=function(s) espHighlightEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Mic Indicator",    Default=false, Callback=function(s) espMicEnabled=s end })
--- สีอยู่ใน section เดียวกัน — ไม่แยก section ใหม่
 ESPSettingsSection:Colorpicker({ Title="Enemy / Default Color", Default=Color3.fromRGB(255,0,0),   Callback=function(c) espColor=c end })
 ESPSettingsSection:Colorpicker({ Title="Friend Color",          Default=Color3.fromRGB(0,255,128), Callback=function(c) friendColor=c end })
 
@@ -1834,7 +2003,6 @@ partialToggle = ObjectSearchSection:Toggle({ Title="Partial Match", Default=fals
 ObjectSearchSection:Colorpicker({ Title="Search ESP Color", Default=Color3.fromRGB(255,255,0), Callback=function(c) objectEspColor=c; updateObjectESP() end })
 
 -- ==================== UI: TELEPORT TAB ====================
--- Player TP + Tween ใช้ dropdown เดียวกัน
 local TPSection = TPTab:Section({ Title = "Player Teleport & Tween", Icon = "navigation" })
 local tpPlayerDropdown = TPSection:Dropdown({ Title="Select Target Player", Values=getPlayerList(), Value="", Callback=function(v) selectedPlayerName=v end })
 TPSection:Button({ Title="Refresh Player List", Callback=function() safeRefresh(tpPlayerDropdown) end })
@@ -1848,7 +2016,6 @@ TPSection:Button({ Title="Teleport to Player",  Callback=function()
     end
 end })
 
--- Tween อยู่ใน section เดียวกัน (ใช้ dropdown ที่มีอยู่แล้ว)
 local TweenSection = TPTab:Section({ Title = "Tween Tracking", Icon = "crosshair" })
 local tweenPlayerDropdown = TweenSection:Dropdown({ Title="Select Player to Track", Values=getPlayerList(), Value="", Callback=function(v) selectedPlayerName=v end })
 TweenSection:Button({ Title="Refresh",  Callback=function() safeRefresh(tweenPlayerDropdown) end })
@@ -1895,13 +2062,10 @@ TweenSection:Toggle({  Title="Enable Relative Tween", Default=false, Callback=fu
 end })
 
 -- Waypoints
--- FIX: ไม่ใช้ :Refresh() เพราะ WindUI ไม่ reliable
--- วิธีแก้: destroy Frame ของ dropdown เก่า → สร้าง Dropdown ใหม่ทันที
 local WaypointSection = TPTab:Section({ Title = "Saved Waypoints", Icon = "bookmark" })
 WaypointSection:Input({ Title="Waypoint Name", Placeholder="พิมพ์ชื่อจุด...", Callback=function(text) currentInputName=text end })
 
-isRebuildingWaypoint = false
-waypointDropdown = nil  -- จะสร้างใน rebuildWPDrop ด้านล่าง
+waypointDropdown = nil
 
 function BCX.createWPDropdown(names)
     waypointDropdown = WaypointSection:Dropdown({
@@ -1914,7 +2078,6 @@ function BCX.createWPDropdown(names)
     })
 end
 
--- selectName: ชื่อจุดที่ให้เลือกอัตโนมัติหลังรีเฟรช (เช่น จุดที่เพิ่งเซฟ)
 local function rebuildWPDrop(selectName)
     local names = getWaypointNamesList()
     local pick = (selectName and waypointsData[selectName] ~= nil) and selectName or nil
@@ -1929,7 +2092,6 @@ local function rebuildWPDrop(selectName)
         end
     end
     if not done then
-        -- สำรอง: ลบอันเก่าแล้วสร้างใหม่
         if waypointDropdown then
             pcall(function() waypointDropdown:Destroy() end)
             pcall(function() if waypointDropdown.Frame then waypointDropdown.Frame:Destroy() end end)
@@ -1940,7 +2102,6 @@ local function rebuildWPDrop(selectName)
     end
 end
 
--- สร้างครั้งแรก
 BCX.createWPDropdown(getWaypointNamesList())
 
 WaypointSection:Button({ Title="Save Current Position", Callback=function()
@@ -1989,20 +2150,30 @@ DragSection:Toggle({ Title="Drag Player", Value=false, Callback=function(state)
 end })
 
 -- ==================== UI: LOCAL PLAYER TAB ====================
--- [1] Movement: Noclip + InfJump + Fly + FlySpeed — อยู่ด้วยกันทั้งหมด
-local noclipToggleRef, infJumpToggleRef, flyToggleRef, flySpeedSliderRef
+local noclipToggleRef, infJumpToggleRef, flySpeedSliderRef
+-- (flyToggleRef / vehFlyToggleRef ประกาศไว้แล้วในส่วน FLY SYSTEM)
 
 local MovementSection = LocalPlayerTab:Section({ Title = "Movement", Icon = "move" })
 noclipToggleRef = MovementSection:Toggle({ Title="Noclip",         Desc="เดินทะลุกำแพง",   Value=false, Flag="NoclipToggle", Callback=function(s) setNoclip(s) end })
 infJumpToggleRef = MovementSection:Toggle({ Title="Infinite Jump", Desc="กระโดดไม่จำกัด", Value=false, Flag="InfJumpToggle", Callback=function(s) setInfiniteJump(s) end })
-flyToggleRef = MovementSection:Toggle({ Title="Fly",               Desc="บินอย่างอิสระ",   Value=false, Flag="FlyToggle",    Callback=function(s) if s then startFly() else stopFly() end end })
+
+-- Fly (ตัวละคร) — เปิดแล้ว Vehicle Fly จะถูกปิดเสมอ (flySwitch จัดการให้)
+flyToggleRef = MovementSection:Toggle({ Title="Fly", Desc="บินอย่างอิสระ", Value=false, Flag="FlyToggle", Callback=function(s)
+    if s then BCX.flySwitch("Normal") else BCX.flyOff("Normal") end
+end })
+
+-- Vehicle Fly (ยกรถ/วัตถุที่นั่งไปด้วย) — เปิดแล้ว Fly ปกติจะถูกปิดเสมอ
+vehFlyToggleRef = MovementSection:Toggle({ Title="Vehicle Fly", Desc="บินพร้อมยานพาหนะ", Value=false, Flag="VehFlyToggle", Callback=function(s)
+    if s then BCX.flySwitch("Vehicle") else BCX.flyOff("Vehicle") end
+end })
+
 flySpeedSliderRef = MovementSection:Slider({
     Title="Fly Speed", Desc="ความเร็วการบิน", Step=1, Flag="FlySpeedValue",
     Value={Min=10, Max=500, Default=50},
     Callback=function(val) flySpeed = tonumber(val) or 50 end
 })
+MovementSection:Toggle({ Title="Fly CFrame Mode", Default=false, Callback=function(s) flyForceCFrame = s end })
 
--- [2] Speed Lock: Custom Speed + Lock อยู่ด้วยกัน
 local SpeedSection = LocalPlayerTab:Section({ Title = "Speed Lock", Icon = "gauge" })
 SpeedSection:Input({ Title="Custom Speed", Placeholder="เช่น 30, 50...", Callback=function(input)
     local num = tonumber(input); customSpeed = num or nil
@@ -2017,18 +2188,18 @@ SpeedSection:Button({ Title="Reset to Default", Callback=function()
     if hum then if speedConnection then speedConnection:Disconnect(); speedConnection=nil end; hum.WalkSpeed=defaultSpeed end
 end })
 
--- [3] Auto-Save — อยู่หลัง Speed Lock
+-- [3] Auto-Save
 local autoSaveIntervalMin = 5
 local autoSaveEnabled = false
 local autoSaveThread = nil
 
 local SaveSection = LocalPlayerTab:Section({ Title = "Auto-Save", Icon = "save" })
-local ConfigManagerLocal = Window.ConfigManager
-local localConfig = ConfigManagerLocal:CreateConfig("settings")
-localConfig:Register("FlySpeedValue", flySpeedSliderRef)
-localConfig:Register("NoclipToggle",  noclipToggleRef)
-localConfig:Register("InfJumpToggle", infJumpToggleRef)
-localConfig:Register("FlyToggle",     flyToggleRef)
+
+function BCX.saveNow()
+    local ok, err = pcall(function() return BCX.cfg:Save() end)
+    if ok then notify("Saved", "บันทึกแล้ว ✅", 2)
+    else notify("Error", tostring(err), 4) end
+end
 
 SaveSection:Slider({ Title="Auto-Save Interval (min)", Desc="บันทึกทุก N นาที", Step=1, Value={Min=1,Max=30,Default=5}, Callback=function(val) autoSaveIntervalMin=tonumber(val) or 5 end })
 SaveSection:Toggle({ Title="Enable Auto-Save", Desc="บันทึกอัตโนมัติตามเวลา", Value=false, Callback=function(state)
@@ -2038,16 +2209,18 @@ SaveSection:Toggle({ Title="Enable Auto-Save", Desc="บันทึกอัต
         autoSaveThread = task.spawn(function()
             while autoSaveEnabled do
                 task.wait(autoSaveIntervalMin*60)
-                if autoSaveEnabled then pcall(function() localConfig:Save() end); notify("Auto-Save","บันทึกแล้ว ✅", 2) end
+                if autoSaveEnabled then BCX.saveNow() end
             end
         end)
     end
 end })
-SaveSection:Button({ Title="Save Now",           Callback=function() pcall(function() localConfig:Save() end); notify("Saved","บันทึกแล้ว ✅", 2) end })
-SaveSection:Button({ Title="Load Saved Settings", Callback=function() pcall(function() localConfig:Load(); notify("Loaded","โหลดสำเร็จ ✅", 2) end) end })
+SaveSection:Button({ Title="Save Now", Callback=function() BCX.saveNow() end })
+SaveSection:Button({ Title="Load Saved Settings", Callback=function()
+    local ok, err = pcall(function() BCX.cfg:Load() end)
+    if ok then notify("Loaded","โหลดสำเร็จ ✅", 2) else notify("Error", tostring(err), 4) end
+end })
 
 -- ==================== UI: MISC TAB ====================
--- ลำดับใหม่: Emote → Speed → Tools → Safety (ท้ายสุด)
 local EmoteSection = MiscTab:Section({ Title = "Emote & Animation", Icon = "smile" })
 local emotePlayerDropdown = EmoteSection:Dropdown({ Title="Select Target", Values=getPlayerList(), Value="", Callback=function(v)
     emoteTargetPlayerName = (v ~= "None") and v or ""
@@ -2096,6 +2269,7 @@ ToolsSection:Button({ Title="Get TP Tool", Desc="เครื่องมือ�
         local tptool = Instance.new("Tool")
         tptool.Name = "Click TP"; tptool.RequiresHandle = false; tptool.CanBeDropped = false
         tptool.Parent = plr:FindFirstChildOfClass("Backpack") or plr:WaitForChild("Backpack")
+        J.obj(tptool)
         tptool.Activated:Connect(function()
             local hr = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
             if hr and mouse.Target then hr.CFrame = CFrame.new(mouse.Hit.X, mouse.Hit.Y+3, mouse.Hit.Z) end
@@ -2105,16 +2279,13 @@ end })
 
 -- ==================== FLING UI ====================
 function BCX.flingCB(state)
-    if not state then
-        BCX.flingAllOn = false
-        BCX.flingStop()
-        return
-    end
+    if not state then BCX.flingStop(); return end
     local function setOff() pcall(function() BCX.flingToggle:Set(false) end) end
-    if not BCX.flingTarget or BCX.flingTarget == "" then
+    local mode = (BCX.flingMode == "All Players") and "All" or "Selected"
+    if mode == "Selected" and (not BCX.flingTarget or BCX.flingTarget == "") then
         notify("Error", "Select a player first!"); setOff(); return
     end
-    local ok = BCX.flingStart(BCX.flingTarget, function() setOff(); notify("Fling", "Fling finished", 2) end)
+    local ok = BCX.flingRun(mode, function() setOff(); notify("Fling", "Fling finished", 2) end)
     if not ok then notify("Error", "Character not found!"); setOff() end
 end
 
@@ -2123,27 +2294,22 @@ do
     BCX.flingDD = FlingSection:Dropdown({ Title="Select Fling Target", Values=getPlayerList(), Value="",
         Callback=function(v) BCX.flingTarget = (v ~= "None") and v or "" end })
     FlingSection:Button({ Title="Refresh", Callback=function() safeRefresh(BCX.flingDD) end })
-    BCX.flingToggle = FlingSection:Toggle({ Title="Fling Player", Default=false, Callback=function(s) BCX.flingCB(s) end })
-    FlingSection:Button({ Title="Fling All", Callback=function()
-        BCX.flingAll(); notify("Fling", "Flinging everyone", 2)
-    end })
-    FlingSection:Button({ Title="Stop Fling", Callback=function()
-        BCX.flingAllOn = false; BCX.flingStop()
-        pcall(function() BCX.flingToggle:Set(false) end)
-        notify("Fling", "Fling stopped", 2)
-    end })
+    FlingSection:Dropdown({ Title="Fling Mode", Values={"Selected Player","All Players"}, Value="Selected Player",
+        Callback=function(v) BCX.flingMode = v end })
+    BCX.flingToggle = FlingSection:Toggle({ Title="Start Fling", Default=false, Callback=function(s) BCX.flingCB(s) end })
 end
 
--- รายชื่อผู้เล่นอัปเดตเองทุกครั้งที่มีคนเข้า/ออก (แก้ปัญหาเลือกผู้เล่นไม่ได้)
+-- รายชื่อผู้เล่นอัปเดตเองทุกครั้งที่มีคนเข้า/ออก
 BCX.PlayerDD = { tpPlayerDropdown, tweenPlayerDropdown, dragDropdown, emotePlayerDropdown, BCX.flingDD }
 function BCX.refreshDD()
+    if BCX.dead then return end
     local list = getPlayerList()
     for _, dd in ipairs(BCX.PlayerDD) do
         if dd then pcall(function() dd:Refresh(list) end) end
     end
 end
-players.PlayerAdded:Connect(function() task.delay(0.5, BCX.refreshDD) end)
-players.PlayerRemoving:Connect(function() task.delay(0.5, BCX.refreshDD) end)
+J.track(players.PlayerAdded:Connect(function() task.delay(0.5, BCX.refreshDD) end))
+J.track(players.PlayerRemoving:Connect(function() task.delay(0.5, BCX.refreshDD) end))
 task.delay(1, BCX.refreshDD)
 
 -- Safety อยู่ท้ายสุดของ Misc
@@ -2168,8 +2334,7 @@ SafetySection:Toggle({ Title="Safe Mode (< 50% HP TP)", Default=false, Callback=
 end })
 BCX.afToggle = SafetySection:Toggle({ Title="Anti-Fling", Default=false, Callback=function(state) BCX.setAF(state) end })
 
--- ==================== CALLBACK MAP สำหรับ QB + Action Bar ====================
--- กำหนด callback ที่ใช้ร่วมกันทั้งสองระบบ
+-- ==================== CALLBACK MAP สำหรับ Quick Buttons ====================
 local TOGGLE_CALLBACKS = {
     ["Noclip"] = function(state)
         setNoclip(state)
@@ -2179,10 +2344,9 @@ local TOGGLE_CALLBACKS = {
         setInfiniteJump(state)
         if infJumpToggleRef and infJumpToggleRef.Set then pcall(function() infJumpToggleRef:Set(state) end) end
     end,
-    ["Fly"] = function(state)
-        if state then startFly() else stopFly() end
-        if flyToggleRef and flyToggleRef.Set then pcall(function() flyToggleRef:Set(state) end) end
-    end,
+    -- Fly / Vehicle Fly: สั่งบินตรงๆ ทันที แล้วซิงก์สวิตช์ใน UI (flyToggle ปิดอีกโหมดให้เอง)
+    ["Fly"]         = function(state) BCX.flyToggle("Normal",  state) end,
+    ["Vehicle Fly"] = function(state) BCX.flyToggle("Vehicle", state) end,
     ["Anti-Fling"] = function(state)
         BCX.setAF(state)
         if BCX.afToggle and BCX.afToggle.Set then pcall(function() BCX.afToggle:Set(state) end) end
@@ -2199,12 +2363,8 @@ local TOGGLE_CALLBACKS = {
     end,
 }
 
-local AB_FUNC_LIST = {}
-for k in pairs(TOGGLE_CALLBACKS) do table.insert(AB_FUNC_LIST, k) end
-table.sort(AB_FUNC_LIST)
-
 -- ==================== UI: SETTINGS TAB ====================
--- [0] Language
+-- [0] Language + Show Descriptions + UI Layout Mode
 do
     local LangSection = SettingsTab:Section({ Title = "Language", Icon = "languages" })
     LangSection:Dropdown({ Title = "Language", Values = { "English", "ไทย" },
@@ -2212,6 +2372,26 @@ do
         Callback = function(v)
             BCX.setLang(v == "ไทย" and "Thai" or "English")
             notify("Language", "Language changed", 2)
+        end })
+    LangSection:Toggle({ Title = "Show Descriptions", Value = BCX.ShowDesc, Callback = function(s)
+        BCX.ShowDesc = s
+        pcall(function()
+            if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+            if writefile then writefile("BlackCrown-X/showdesc.txt", s and "1" or "0") end
+        end)
+        BCX.apply()
+    end })
+    -- สลับ UI: เซฟโหมด -> เซฟค่า -> ทำลายทุกอย่าง -> รันใหม่ตามโหมดที่เลือก
+    LangSection:Dropdown({ Title = "UI Layout Mode", Values = { "Auto", "PC", "Mobile" },
+        Value = BCX.UIPref,
+        Callback = function(v)
+            if v == BCX.UIPref then return end
+            BCX.UIPref = v
+            pcall(function()
+                if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+                if writefile then writefile("BlackCrown-X/uimode.txt", v) end
+            end)
+            BCX.reload()
         end })
 end
 
@@ -2229,6 +2409,7 @@ QBSection:Button({ Title="Add Button", Desc="สร้างปุ่มลอ�
         if btn.funcName == selectedQBFunc then notify("มีอยู่แล้ว", selectedQBFunc.." มีปุ่มแล้ว"); return end
     end
     createQuickButton(selectedQBFunc, 80 + #QuickButtons*75, 200, 65, false, TOGGLE_CALLBACKS[selectedQBFunc])
+    saveQuickButtons()
     notify("เพิ่มแล้ว", "ปุ่ม "..selectedQBFunc.." บนหน้าจอ")
 end })
 QBSection:Button({ Title="Remove Selected Button", Callback=function()
@@ -2239,27 +2420,7 @@ QBSection:Button({ Title="Remove All Buttons", Callback=function()
     removeAllQuickButtons(); notify("ลบแล้ว","ลบปุ่มทั้งหมดแล้ว")
 end })
 
--- [B] Action Bottom Bar (Fixed, ไม่ลาก)
-local ABSection = SettingsTab:Section({ Title = "Action Bottom Bar (Mobile)", Icon = "smartphone" })
-local selectedABFunc = AB_FUNC_LIST[1]
-
-ABSection:Paragraph({ Title="Action Bottom Bar", Desc="ปุ่ม fixed ล่างจอ กดเพื่อ toggle ฟังก์ชัน เหมาะสำหรับมือถือ — ลากไม่ได้ แต่เพิ่ม/ลบได้" })
-ABSection:Dropdown({ Title="Function", Desc="ฟังก์ชันสำหรับ Action Bar", Values=AB_FUNC_LIST, Value=selectedABFunc, Callback=function(v) selectedABFunc=v end })
-ABSection:Button({ Title="Add to Action Bar", Desc="เพิ่มปุ่มที่ล่างจอ", Callback=function()
-    if not TOGGLE_CALLBACKS[selectedABFunc] then notify("Error","ไม่พบฟังก์ชัน"); return end
-    addActionBarButton(selectedABFunc, false, TOGGLE_CALLBACKS[selectedABFunc])
-    notify("เพิ่มแล้ว", "เพิ่ม "..selectedABFunc.." ที่ Action Bar")
-end })
-ABSection:Button({ Title="Remove from Action Bar", Callback=function()
-    removeActionBarButton(selectedABFunc); notify("ลบแล้ว","ลบ "..selectedABFunc.." ออกจาก Action Bar")
-end })
-ABSection:Button({ Title="Clear All Action Bar", Callback=function()
-    removeAllActionBar(); notify("ลบแล้ว","ล้าง Action Bar ทั้งหมด")
-end })
-ABSection:Slider({ Title="Bottom Offset (px)", Desc="ระยะห่างจากขอบล่างจอ", Step=4, Value={Min=8,Max=120,Default=24}, Callback=function(v) ACTION_BAR_BOTTOM_OFFSET=v; rebuildActionBarLayout() end })
-ABSection:Slider({ Title="Button Size (px)",   Desc="ขนาดปุ่ม Action Bar", Step=4, Value={Min=48,Max=100,Default=64}, Callback=function(v) ACTION_BTN_SIZE=v; rebuildActionBarLayout() end })
-
--- [C] Keybinds
+-- [B] Keybinds
 local KeybindSection = SettingsTab:Section({ Title = "Keybinds", Icon = "keyboard" })
 KeybindSection:Keybind({ Title="Noclip",        Value="V", Callback=function()
     noclipEnabled = not noclipEnabled; setNoclip(noclipEnabled)
@@ -2271,66 +2432,139 @@ KeybindSection:Keybind({ Title="Infinite Jump",  Value="T", Callback=function()
     if infJumpToggleRef and infJumpToggleRef.Set then pcall(function() infJumpToggleRef:Set(infiniteJumpEnabled) end) end
     notify("Infinite Jump", infiniteJumpEnabled and "เปิด" or "ปิด", 1.5)
 end })
-KeybindSection:Keybind({ Title="Fly",             Value="F", Callback=function()
-    if isFlying then
-        stopFly()
-        if flyToggleRef and flyToggleRef.Set then pcall(function() flyToggleRef:Set(false) end) end
-        notify("Fly","ปิด", 1.5)
-    else
-        startFly()
-        if flyToggleRef and flyToggleRef.Set then pcall(function() flyToggleRef:Set(true) end) end
-        notify("Fly","เปิด", 1.5)
-    end
+-- Fly / Vehicle Fly: กดครั้งเดียว สั่งบินตรงๆ ทันที
+KeybindSection:Keybind({ Title="Fly", Value="F", Callback=function()
+    local on = not (isFlying and flyMode == "Normal")
+    BCX.flyToggle("Normal", on)
+    notify("Fly", on and "เปิด" or "ปิด", 1.5)
+end })
+KeybindSection:Keybind({ Title="Vehicle Fly", Value="G", Callback=function()
+    local on = not (isFlying and flyMode == "Vehicle")
+    BCX.flyToggle("Vehicle", on)
+    notify("Vehicle Fly", on and "เปิด" or "ปิด", 1.5)
 end })
 
--- [D] Load Action Bar จาก JSON
-local function loadActionBar()
-    pcall(function()
-        if not isfile or not isfile("BlackCrown-X/actionbar.json") then return end
-        local raw = readfile("BlackCrown-X/actionbar.json")
-        if not raw or #raw < 3 then return end
-        local ok, data = pcall(game:GetService("HttpService").JSONDecode, game:GetService("HttpService"), raw)
-        if not ok or type(data) ~= "table" then return end
-        for _, btn in ipairs(ActionBar) do pcall(function() btn.BtnFrame:Destroy() end) end
-        ActionBar = {}
-        for _, d in ipairs(data) do
-            if d.func and TOGGLE_CALLBACKS[d.func] then
-                addActionBarButton(d.func, d.state or false, TOGGLE_CALLBACKS[d.func])
-                if d.state then pcall(TOGGLE_CALLBACKS[d.func], d.state) end
-            end
-        end
-    end)
+-- ปุ่ม Save ถาวร: เป็นหนึ่งใน "ปุ่มลัดบนจอ (ลากได้)" ลบไม่ได้
+function BCX.saveLabelText() return (BCX.Lang == "Thai") and "บันทึกเดี๋ยวนี้" or "Save Now" end
+createQuickButton("Save", 80, 200, 65, false, function() BCX.saveNow() end,
+    { permanent = true, momentary = true, label = BCX.saveLabelText() })
+BCX.onLang = function()
+    for _, btn in ipairs(QuickButtons) do
+        if btn.permanent and btn.Label then pcall(function() btn.Label.Text = BCX.saveLabelText() end) end
+    end
 end
 
 -- ==================== LOAD CONFIGS & QUICK BUTTONS ====================
-task.delay(0.5, function()
-    pcall(function()
-        localConfig:Load()
-        notify("BlackCrown-X","โหลดการตั้งค่าก่อนหน้าแล้ว ✅", 3)
-    end)
+task.delay(1, function()
+    if BCX.dead then return end
+    local ok, err = pcall(function() BCX.cfg:Load() end)
+    if ok then notify("BlackCrown-X","โหลดการตั้งค่าก่อนหน้าแล้ว ✅", 3)
+    else warn("Load failed:", err) end
 end)
 
 task.delay(1.5, function()
+    if BCX.dead then return end
     loadQuickButtons(TOGGLE_CALLBACKS)
-    loadActionBar()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v2 (UI Reorganized + Action Bottom Bar) loaded")
+print("BlackCrown-X v3.1 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
--- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
-task.spawn(function()
-    local FM = { on = false }
 
-    -- ระหว่างเปิดโหมด: บังคับ Default ทับทุกเฟรมเพื่อชนะกล้องของ Roblox
-    local function force()
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        UserInputService.MouseIconEnabled = true
+-- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
+-- เปิด: ซ่อนเมาส์/crosshair ของเกม + วาดเมาส์ของเราแทน | ปิด: คืนของเดิม
+task.spawn(function()
+    local FM = { on = false, hidden = {} }
+    local cursorGui, cursorImg, modalGui, modalBtn, stepConn
+
+    local function makeCursor()
+        if cursorGui and cursorGui.Parent then return end
+        cursorGui = Instance.new("ScreenGui")
+        cursorGui.Name = "BCX_FakeCursor"
+        cursorGui.ResetOnSpawn = false
+        cursorGui.IgnoreGuiInset = true
+        cursorGui.DisplayOrder = 2147483647
+        cursorGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        pcall(function() cursorGui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+        if not cursorGui.Parent then cursorGui.Parent = p:WaitForChild("PlayerGui") end
+        J.obj(cursorGui)
+
+        cursorImg = Instance.new("ImageLabel")
+        cursorImg.BackgroundTransparency = 1
+        cursorImg.Size = UDim2.fromOffset(48, 48)
+        cursorImg.AnchorPoint = Vector2.new(0.5, 0.5)
+        cursorImg.Image = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
+        cursorImg.ZIndex = 10
+        cursorImg.Parent = cursorGui
+
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.fromOffset(10, 10)
+        dot.AnchorPoint = Vector2.new(0.5, 0.5)
+        dot.Position = UDim2.fromScale(0.5, 0.5)
+        dot.BackgroundColor3 = Color3.new(1, 1, 1)
+        dot.Visible = false
+        dot.ZIndex = 11
+        dot.Parent = cursorImg
+        Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+        local st = Instance.new("UIStroke", dot); st.Color = Color3.new(0, 0, 0); st.Thickness = 2
+        task.delay(2, function()
+            if cursorImg and cursorImg.Parent and not cursorImg.IsLoaded then dot.Visible = true end
+        end)
     end
 
-    -- ตอนปิดโหมด: เขี่ย CameraType ไปมา บังคับให้ Roblox
-    -- รีเซ็ตสถานะล็อกเมาส์ใหม่ทั้งหมดให้ตรงกับมุมมองปัจจุบันจริงๆ
-    -- (แก้ปัญหาเมาส์ค้างล็อกตอนซูมเป็น Third Person)
+    -- ปุ่ม Modal: วิธีมาตรฐานที่ Roblox ใช้ปลดล็อกเมาส์ (ต้องอยู่ใน PlayerGui)
+    local function makeModal()
+        if modalGui and modalGui.Parent then return end
+        modalGui = Instance.new("ScreenGui")
+        modalGui.Name = "BCX_ModalFree"
+        modalGui.ResetOnSpawn = false
+        modalGui.Parent = p:WaitForChild("PlayerGui")
+        J.obj(modalGui)
+        modalBtn = Instance.new("TextButton")
+        modalBtn.Size = UDim2.fromOffset(0, 0)
+        modalBtn.BackgroundTransparency = 1
+        modalBtn.Text = ""
+        modalBtn.Modal = false
+        modalBtn.Parent = modalGui
+    end
+
+    -- ซ่อนเมาส์/crosshair ของเกม (GUI ที่ชื่อมี cursor / crosshair / mouseicon)
+    local function hideGameCursors()
+        local pg = p:FindFirstChild("PlayerGui")
+        if not pg then return end
+        for _, d in ipairs(pg:GetDescendants()) do
+            if d:IsA("GuiObject") and d.Visible then
+                local gui = d:FindFirstAncestorOfClass("ScreenGui")
+                if not (gui and gui.Name:sub(1, 4) == "BCX_") then
+                    local n = d.Name:lower()
+                    if n:find("cursor", 1, true) or n:find("crosshair", 1, true) or n:find("mouseicon", 1, true) then
+                        FM.hidden[d] = true
+                        d.Visible = false
+                    end
+                end
+            end
+        end
+    end
+
+    local function restoreGameCursors()
+        for d in pairs(FM.hidden) do
+            if d and d.Parent then pcall(function() d.Visible = true end) end
+        end
+        FM.hidden = {}
+    end
+
+    local function force()
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = false
+        for d in pairs(FM.hidden) do
+            if d.Parent then d.Visible = false end
+        end
+        if cursorImg then
+            local m = UserInputService:GetMouseLocation()
+            cursorImg.Position = UDim2.fromOffset(m.X, m.Y)
+        end
+    end
+
     local function resyncCamera()
         local cam = workspace.CurrentCamera
         if not cam then return end
@@ -2338,35 +2572,101 @@ task.spawn(function()
         pcall(function() cam.CameraType = Enum.CameraType.Scriptable end)
         task.wait()
         pcall(function()
-            cam.CameraType = (original == Enum.CameraType.Scriptable)
-                and Enum.CameraType.Custom or original
+            cam.CameraType = (original == Enum.CameraType.Scriptable) and Enum.CameraType.Custom or original
         end)
     end
 
-    local function setFree(state)
+    -- silent = true: ไม่แจ้งเตือน (ใช้ตอน reload/ทำลาย UI)
+    local function setFree(state, silent)
         if state == FM.on then return end
         FM.on = state
-
         if state then
+            makeCursor(); makeModal()
+            if cursorGui then cursorGui.Enabled = true end
+            if modalBtn then modalBtn.Modal = true end
+            hideGameCursors()
             RunService:BindToRenderStep("BCX_FreeMouse", Enum.RenderPriority.Last.Value, force)
+            stepConn = RunService.Stepped:Connect(function()
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end)
             force()
         else
             pcall(function() RunService:UnbindFromRenderStep("BCX_FreeMouse") end)
+            if stepConn then stepConn:Disconnect(); stepConn = nil end
+            if modalBtn then modalBtn.Modal = false end
+            if cursorGui then cursorGui.Enabled = false end
+            restoreGameCursors()
+            UserInputService.MouseIconEnabled = true
             resyncCamera()
         end
-
-        pcall(function()
-            WindUI:Notify({
-                Title = BCX.msg("Free Mouse"),
-                Content = BCX.msg(state and "ON — free mouse" or "OFF — back to normal"),
-                Duration = 2,
-            })
-        end)
+        if not silent then
+            pcall(function()
+                WindUI:Notify({
+                    Title = BCX.msg("Free Mouse"),
+                    Content = BCX.msg(state and "ON — free mouse" or "OFF — back to normal"),
+                    Duration = 2,
+                })
+            end)
+        end
     end
+    BCX.setFree = setFree
 
-    UserInputService.InputBegan:Connect(function(input)
+    J.track(UserInputService.InputBegan:Connect(function(input)
         if input.KeyCode ~= Enum.KeyCode.Y then return end
         if UserInputService:GetFocusedTextBox() then return end
         setFree(not FM.on)
-    end)
+    end))
 end)
+
+-- ==================== CLEANUP (ทำงานตอน reload / รันสคริปต์ซ้ำ) ====================
+-- ปิดทุกฟังก์ชัน -> ล้าง ESP/Drawing -> ทำลายหน้าต่าง WindUI
+-- (connection / GUI ที่ผ่าน J.track / J.obj จะถูกล้างต่อท้ายโดย J.destroy)
+J.onClean(function()
+    BCX.dead = true
+
+    -- 1) ปิดสวิตช์ทั้งหมด
+    aimbotEnabled = false; fovEnabled = false
+    isTweeningRelative = false; safeModeEnabled = false; autoSaveEnabled = false
+    exactMatchEnabled = false; partialMatchEnabled = false
+    isCopyingPlayerEmote = false; isPlayingCustomEmote = false
+    if autoSaveThread then pcall(task.cancel, autoSaveThread); autoSaveThread = nil end
+
+    -- 2) คืนสภาพระบบต่างๆ
+    if BCX.setFree then pcall(BCX.setFree, false, true) end
+    if dragActive then pcall(stopDrag, dragTargetName) end
+    dragActive = false
+    pcall(stopFly)
+    if noclipEnabled then pcall(setNoclip, false) end
+    if infiniteJumpEnabled then pcall(setInfiniteJump, false) end
+    pcall(BCX.setAF, false)
+    pcall(BCX.flingStop)
+    pcall(stopMirroring)
+    pcall(stopCustomEmotes)
+    if speedConnection then
+        speedConnection:Disconnect(); speedConnection = nil
+        local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = defaultSpeed end
+    end
+    local hrp = getHRP()
+    if hrp then pcall(removeBodyVelocity, hrp) end
+    if tempPlatform then pcall(function() tempPlatform:Destroy() end); tempPlatform = nil end
+
+    -- 3) ล้าง ESP / Drawing
+    local plist = {}
+    for plr in pairs(espObjects) do table.insert(plist, plr) end
+    for _, plr in ipairs(plist) do pcall(removeESP, plr) end
+    pcall(clearObjectESP)
+    if fovCircle then pcall(function() fovCircle:Remove() end); fovCircle = nil end
+
+    -- 4) ทำลายหน้าต่าง WindUI (+ ScreenGui ของมัน)
+    local gui
+    pcall(function() gui = Window.UIElements.Main:FindFirstAncestorOfClass("ScreenGui") end)
+    pcall(function() Window:Destroy() end)
+    pcall(function() WindUI:Destroy() end)
+    task.wait(0.2)
+    if gui and gui.Parent then pcall(function() gui:Destroy() end) end
+end)
+
+end -- launch
+
+launch()
