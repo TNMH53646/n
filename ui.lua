@@ -67,6 +67,78 @@ local function getPlayerList()
     return list
 end
 
+flingActive = false
+SelectedFlingTarget = nil
+
+-- ============================================================
+-- ANTI FLING COLLISION SETUP
+-- ============================================================
+local function setupCharacterCollision(a)
+    local function disableCollide(b)
+        if isafEnabled and b:IsA('BasePart') then b.CanCollide = false end
+    end
+    for b, c in ipairs(a:GetChildren()) do disableCollide(c) end
+    local b, c = a.ChildAdded:Connect(disableCollide), RunService.Stepped:Connect(function()
+        if isafEnabled and a:IsDescendantOf(workspace) then
+            for b, c in ipairs(a:GetChildren()) do
+                if c:IsA('BasePart') and c.CanCollide then c.CanCollide = false end
+            end
+        end
+    end)
+    a.Destroying:Connect(function() b:Disconnect(); c:Disconnect() end)
+end
+
+local function trackPlayer(a)
+    if a == p then return end
+    a.CharacterAdded:Connect(setupCharacterCollision)
+    if a.Character then setupCharacterCollision(a.Character) end
+end
+
+for a, b in ipairs(ps:GetPlayers()) do trackPlayer(b) end
+ps.PlayerAdded:Connect(trackPlayer)
+
+UserInputService = game:GetService('UserInputService')
+local VirtualUser = game:GetService('VirtualUser')
+local ProximityService = game:GetService('ProximityPromptService')
+local camera = workspace.CurrentCamera
+
+p.Idled:Connect(function()
+    VirtualUser:Button2Down(Vector2.new(0,0), camera.CFrame)
+    task.wait(1)
+    VirtualUser:Button2Up(Vector2.new(0,0), camera.CFrame)
+end)
+
+ProximityService.PromptShown:Connect(function(prompt)
+    prompt.HoldDuration = 0
+end)
+
+local WINDOW_ICON_ID      = "crown"  -- ใช้ชื่อ lucide แทนสำหรับ Window title
+local OPEN_BUTTON_ICON_ID = "rbxassetid://122824841507202"  -- ใช้ asset ID สำหรับปุ่มเปิด
+
+local success, Library = pcall(function()
+    return loadstring(game:HttpGet('https://github.com/Footagesus/WindUI/releases/latest/download/main.lua'))()
+end)
+if not success then return end
+
+Library:AddTheme({
+    Name        = 'BlackCrown',
+    Accent      = Color3.fromHex('#1a1a1a'),
+    Background  = Color3.fromHex('#0a0a0a'),
+    Outline     = Color3.fromHex('#333333'),
+    Text        = Color3.fromHex('#ffffff'),
+    Placeholder = Color3.fromHex('#666666'),
+    Button      = Color3.fromHex('#22CE00'),
+    Icon        = Color3.fromHex('#aaaaaa'),
+})
+local function safeCall(fn, state)
+    if fn then
+        local ok, err = pcall(fn, state)
+        if not ok then
+            print('QAB Error:', err)
+        end
+    end
+end
+
 -- ==================== EMOTE MIRROR SYSTEM ====================
 local emoteTargetPlayerName = ""
 local isCopyingPlayerEmote = false
