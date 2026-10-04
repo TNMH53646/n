@@ -1,10 +1,19 @@
--- ==================== BlackCrown-X v3.1 ====================
--- Changes (จาก v3):
---   * Fly / Vehicle Fly กดครั้งเดียวทำงานทันที (ปุ่มคีย์ลัด F/G, Quick Button, สวิตช์ใน UI)
---   * startFly ไม่รอโหลด PlayerModule แล้ว (โหลดเบื้องหลัง ใช้ WASD / MoveDirection ไปก่อน)
---   * ปุ่มคีย์ลัด / Quick Button เรียกฟังก์ชันบินตรงๆ แล้วค่อยซิงก์สวิตช์ UI กับสีปุ่ม
---   * Quick Button ซิงก์สีตามสถานะบินจริง (เปิด Vehicle Fly แล้ว Fly ปกติดับ ปุ่มก็ดับตาม)
--- (ของเดิมจาก v3: UI Layout Mode, รันซ้ำล้างของเก่า, Fly แยก 2 โหมด, ปุ่ม Save ถาวร)
+-- ==================== BlackCrown-X v3.3 ====================
+-- Changes (จาก v3.2):
+--   * คีย์ลัดทุกตัวมาอยู่หน้า Keybinds และเปลี่ยนปุ่มได้: Free Mouse (Y), Toggle UI (LeftAlt),
+--     Click TP (R), Fly Up (Space), Fly Down (LeftControl) + ของเดิม (Noclip/Infinite Jump/Fly/Vehicle Fly)
+--   * เมาส์ปลอมตอนกด Y ใหญ่ขึ้น (64px) และอัปเดตตำแหน่งทันทีตอนขยับเมาส์ (ลดอาการกระตุก)
+--   * Click TP ใหม่: กด R ค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น (ปล่อย R = หยุด)
+--     และมี Quick Button / สวิตช์ "Click TP" (โหมดวาร์ปคลิก: แตะตรงไหนของจอก็วาร์ปไปตรงนั้น ไม่ต้องใช้ไอเทม)
+-- Changes (จาก v3.1):
+--   * ระบบสถานะกลาง BCX.F / BCX.feat(): ทุกฟังก์ชัน (Noclip, Infinite Jump, Fly, Vehicle Fly,
+--     Anti-Fling, Fling, Safe Mode, Tween Track) มี "สถานะจริง" ที่เดียว
+--     ไม่ว่าจะกดจาก UI / ปุ่มคีย์ลัด / Quick Button ทั้ง 3 ช่องทางจะซิงก์กันเสมอ
+--   * เปิดจากช่องทางไหนก็ตาม สวิตช์ UI + สีปุ่ม Quick Button จะเปลี่ยนตามทันที (เขียว = เปิดอยู่)
+--   * กดสลับจากสถานะจริง ไม่ใช่สถานะที่ปุ่มจำไว้เอง จึงไม่เพี้ยน/ไม่ซ้อนทับกัน
+--   * Fly กับ Vehicle Fly ยังเปิดได้ทีละโหมด (เปิดอันหนึ่ง อีกอันดับ + สวิตช์/ปุ่มดับตาม)
+--   * Tween Track / Safe Mode จาก Quick Button ทำงานจริงแล้ว (เดิมแค่ตั้งตัวแปร)
+-- (ของเดิมจาก v3.1: Fly กดครั้งเดียวทำงาน, UI Layout Mode, รันซ้ำล้างของเก่า, ปุ่ม Save ถาวร)
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BCX_Instance and genv.BCX_Instance.destroy then
@@ -28,6 +37,7 @@ function J.destroy()
     for _, c in ipairs(J.conns) do pcall(function() c:Disconnect() end) end
     for _, o in ipairs(J.objs) do pcall(function() o:Destroy() end) end
     J.conns, J.objs, J.extra = {}, {}, {}
+    if genv.BCX_Instance and genv.BCX_Instance.destroy == J.destroy then genv.BCX_Instance = nil end
 end
 genv.BCX_Instance = { destroy = J.destroy }
 
@@ -94,7 +104,41 @@ local BCX = {
     Lang = "English", Registry = {}, TabReg = {}, dead = false,
     afOn = false, afConn = nil, maxVel = 90,
     flinging = false, flingAllOn = false, flingTarget = "", flingConn = nil, flingOrigCF = nil,
+    UI = {},   -- อ้างอิงสวิตช์ใน UI ของแต่ละฟังก์ชัน (ใช้ซิงก์)
+    F = {},    -- ตารางฟังก์ชันกลาง (สถานะจริง)
 }
+
+-- ==================== KEYBIND REGISTRY (ปรับปุ่มได้จากหน้า Keybinds) ====================
+-- ค่าเริ่มต้นของแต่ละปุ่ม; ค่าจริงอ่านจากสวิตช์ Keybind ใน UI (BCX.KB) ทุกครั้งที่กด
+BCX.KB = {}
+BCX.keys = {
+    ["Free Mouse"] = "Y", ["Click TP Key"] = "R", ["Toggle UI"] = "LeftAlt",
+    ["Fly Up"] = "Space", ["Fly Down"] = "LeftControl",
+}
+function BCX.keyName(name)
+    local el = BCX.KB[name]
+    local v = el and el.Value
+    if typeof(v) == "EnumItem" then v = v.Name end
+    if type(v) == "string" and v ~= "" then return v end
+    return BCX.keys[name]
+end
+function BCX.keyCode(name)
+    local ok, kc = pcall(function() return Enum.KeyCode[BCX.keyName(name)] end)
+    if ok and kc then return kc end
+    return Enum.KeyCode[BCX.keys[name]]
+end
+function BCX.keyIs(name, input)
+    return input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name == BCX.keyName(name)
+end
+-- callback ของ Keybind ที่ใช้แค่จำชื่อปุ่ม (ตัวจัดการจริงอยู่ที่ InputBegan ของเรา)
+function BCX.kbRec(name, extra)
+    return function(v)
+        if type(v) == "string" and v ~= "" then
+            BCX.keys[name] = v
+            if extra then pcall(extra, v) end
+        end
+    end
+end
 
 -- โหมด UI: Auto = ตรวจอุปกรณ์เอง, PC = หัวข้อบรรทัดเดียว, Mobile = กล่อง Section
 BCX.UIPref = "Auto"
@@ -150,6 +194,7 @@ local function setupCharacterCollision(a)
             end
         end
     end)
+    J.track(b); J.track(c)
     a.Destroying:Connect(function() b:Disconnect(); c:Disconnect() end)
 end
 
@@ -442,8 +487,8 @@ local noclipEnabled = false
 local noclipSteppedConn = nil
 
 local function setNoclip(state)
-    noclipEnabled = state
-    if state then
+    noclipEnabled = state and true or false
+    if noclipEnabled then
         if not noclipSteppedConn then
             noclipSteppedConn = RunService.Stepped:Connect(function()
                 if noclipEnabled and p.Character then
@@ -468,7 +513,7 @@ local infiniteJumpEnabled = false
 local jumpConnection = nil
 
 local function setInfiniteJump(state)
-    infiniteJumpEnabled = state
+    infiniteJumpEnabled = state and true or false
     if infiniteJumpEnabled then
         if not jumpConnection then
             jumpConnection = UserInputService.JumpRequest:Connect(function()
@@ -484,13 +529,10 @@ local function setInfiniteJump(state)
 end
 
 -- ==================== FLY SYSTEM (แยก 2 โหมด: Fly / Vehicle Fly) ====================
--- ใช้ระบบเดียวกัน แต่เลือกเป้าหมายต่างกันตาม flyMode:
 --  • "Normal"  → บินตัวละครเท่านั้น (HumanoidRootPart)
---  • "Vehicle" → ต้องนั่งที่นั่งอยู่ ยกยานทั้งคัน (รถ/เรือ/วัตถุ) ไปตามทิศกล้อง
---                ถ้ายังไม่นั่ง จะรอ ไม่บินตัวละคร
+--  • "Vehicle" → ต้องนั่งที่นั่งอยู่ ยกยานทั้งคัน ไปตามทิศกล้อง (ถ้ายังไม่นั่งจะรอ)
 --  • เกมที่ลบ BodyVelocity/ล็อกตัวละคร → สลับเป็นโหมด CFrame อัตโนมัติ
---  • เปิดโหมดหนึ่ง อีกโหมดจะถูกปิดเสมอ (BCX.flySwitch)
---  • กดครั้งเดียวทำงานทันที: ติดระบบบินในเฟรมเดียวกับที่กด ไม่รอโหลดอะไร
+--  • เปิดโหมดหนึ่ง อีกโหมดจะถูกปิดเสมอ (BCX.flySwitch) และ UI/ปุ่มลัดซิงก์ตามสถานะจริง
 local flySpeed = 50
 local bodyGyro = nil
 local bodyVelocity = nil
@@ -570,8 +612,8 @@ local function getFlyInput(cam, humanoid)
     end
     local up = 0
     if UserInputService:GetFocusedTextBox() == nil then
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then up = up + 1 end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then up = up - 1 end
+        if UserInputService:IsKeyDown(BCX.keyCode("Fly Up")) then up = up + 1 end
+        if UserInputService:IsKeyDown(BCX.keyCode("Fly Down")) then up = up - 1 end
     end
     return f, r, up
 end
@@ -655,7 +697,6 @@ local function startFly(mode)
         end
 
         -- โหมดปกติต้อง PlatformStand, โหมดยานห้ามเปิด (ไม่งั้นตัวละครหลุดจากที่นั่ง)
-        -- เกมบางเกมรีเซ็ตค่านี้ทุกเฟรม เลยบังคับทับทุกเฟรม
         local wantStand = not isVehicleMode
         if humanoid.PlatformStand ~= wantStand then humanoid.PlatformStand = wantStand end
 
@@ -695,25 +736,18 @@ local function startFly(mode)
     end)
 end
 
--- สวิตช์ของ 2 โหมด (ประกาศตรงนี้เพื่อให้ฟังก์ชันสลับโหมดอ้างถึงได้)
-local flyToggleRef, vehFlyToggleRef
-
--- ซิงก์สี Quick Button ให้ตรงกับสถานะบินจริง (BCX.qbSync ประกาศไว้ในส่วน Quick Buttons)
+-- ซิงก์ UI + Quick Button ของทั้ง 2 โหมดบินให้ตรงกับสถานะจริง
 function BCX.flyRefreshQB()
-    if BCX.qbSync then
-        BCX.qbSync("Fly", isFlying and flyMode == "Normal")
-        BCX.qbSync("Vehicle Fly", isFlying and flyMode == "Vehicle")
+    if BCX.sync then
+        BCX.sync("Fly")
+        BCX.sync("Vehicle Fly")
     end
 end
 
--- เปิดโหมดที่ต้องการ: ถ้าอีกโหมดกำลังบินอยู่ ปิดมัน (พร้อมดับสวิตช์) ก่อนเสมอ
+-- เปิดโหมดที่ต้องการ: ถ้าอีกโหมดกำลังบินอยู่ ปิดมันก่อนเสมอ (แล้วซิงก์ให้ดับตาม)
 function BCX.flySwitch(mode)
     if isFlying and flyMode == mode then return end
-    if isFlying then
-        local other = (flyMode == "Vehicle") and vehFlyToggleRef or flyToggleRef
-        if other and other.Set then pcall(function() other:Set(false) end) end
-        stopFly()
-    end
+    if isFlying then stopFly() end
     startFly(mode)
     BCX.flyRefreshQB()
 end
@@ -722,13 +756,6 @@ end
 function BCX.flyOff(mode)
     if isFlying and flyMode == mode then stopFly() end
     BCX.flyRefreshQB()
-end
-
--- ใช้กับปุ่มคีย์ลัด / Quick Button: สั่งบินตรงๆ ทันที แล้วซิงก์สวิตช์ใน UI
-function BCX.flyToggle(mode, on)
-    if on then BCX.flySwitch(mode) else BCX.flyOff(mode) end
-    local mine = (mode == "Vehicle") and vehFlyToggleRef or flyToggleRef
-    if mine and mine.Set then pcall(function() mine:Set(on) end) end
 end
 
 -- ==================== UI LOAD ====================
@@ -761,8 +788,26 @@ local Window = WindUI:CreateWindow({
     }
 })
 
--- config เดียวสำหรับทั้งสคริปต์ (แก้ปัญหาสร้างซ้ำชื่อ "settings" สองอัน)
+-- config เดียวสำหรับทั้งสคริปต์
 BCX.cfg = Window.ConfigManager:CreateConfig("settings")
+
+-- ถ้า UI ถูกทำลาย (ปุ่ม X / Destroy) -> ทำลายทุกอย่างของสคริปต์ทิ้งทั้งหมด
+-- (J.destroy ปิดทุกฟังก์ชัน ลบ ESP/Drawing/ปุ่มลัด/ครอสแฮร์/เมาส์ปลอม/connection ทั้งหมด)
+do
+    local function onUIDestroyed()
+        if J.dead then return end -- กำลังทำลายอยู่แล้ว (เช่น reload หรือรันซ้ำ)
+        task.spawn(J.destroy)
+    end
+    pcall(function() Window:OnDestroy(onUIDestroyed) end)
+    pcall(function()
+        local g = Window.UIElements.Main:FindFirstAncestorOfClass("ScreenGui")
+        if g then
+            J.track(g.AncestryChanged:Connect(function(_, parent)
+                if not parent then onUIDestroyed() end
+            end))
+        end
+    end)
+end
 
 -- ==================== LANGUAGE SYSTEM (English / ไทย) ====================
 BCX.I18N = {}
@@ -798,6 +843,20 @@ E("Fling", "ฟลิง (ดีดผู้เล่น)")
 E("Language", "ภาษา")
 E("Quick Buttons (Draggable)", "ปุ่มลัดบนจอ (ลากได้)")
 E("Keybinds", "ปุ่มคีย์ลัด")
+E("Free Mouse", "เมาส์อิสระ",
+  "Key that turns the free mouse on/off.", "ปุ่มเปิด/ปิดเมาส์อิสระ")
+E("Click TP Key", "ปุ่มวาร์ปคลิก",
+  "Hold this key, then click anywhere to teleport to that spot. Release the key to stop.",
+  "กดปุ่มนี้ค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น ปล่อยปุ่มก็หยุด")
+E("Toggle UI", "ปุ่มเปิด/ปิดเมนู",
+  "Key that shows or hides this menu.", "ปุ่มแสดง/ซ่อนเมนูนี้")
+E("Fly Up", "บินขึ้น",
+  "Key to fly up.", "ปุ่มบินขึ้น")
+E("Fly Down", "บินลง",
+  "Key to fly down.", "ปุ่มบินลง")
+E("Click TP Mode", "โหมดวาร์ปคลิก",
+  "While ON, tap/click anywhere on the screen to teleport there. No tool needed.",
+  "ตอนเปิด แตะ/คลิกตรงไหนของจอก็วาร์ปไปตรงนั้น ไม่ต้องใช้ไอเทม")
 
 -- Language
 E("Language", "ภาษา",
@@ -1145,7 +1204,7 @@ BCX.NOSAVE = {
     ["Select Target Player"]=true, ["Select Player to Track"]=true, ["Select Target"]=true,
     ["Select Fling Target"]=true, ["Select Waypoint"]=true, ["Waypoint Name"]=true,
     ["Search Name"]=true, ["Function"]=true, ["Language"]=true, ["Show Descriptions"]=true,
-    ["UI Layout Mode"]=true,
+    ["UI Layout Mode"]=true, ["Click TP Mode"]=true,
     ["Drag Player"]=true, ["Start Fling"]=true, ["Copy Player Movement"]=true,
     ["Play Custom ID Emote"]=true, ["Enable Relative Tween"]=true,
 }
@@ -1381,18 +1440,26 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     dot.Visible = not opts.momentary
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
 
+    -- ทาสีปุ่มตามสถานะ (ให้ระบบอื่นสั่งเปลี่ยนได้ผ่าน btnData.set)
+    local function paint()
+        frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(35,35,45)
+        stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(80,80,100)
+        dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(100,100,120)
+    end
+    btnData.set = function(v) btnState = v and true or false; btnData.state = btnState; paint() end
+
     local dragging, dragStart, startPos = false, nil, nil
 
-    frame.InputBegan:Connect(function(input)
+    J.track(frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch
         or input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragStart = input.Position
             startPos  = frame.Position
             dragging  = false
         end
-    end)
+    end))
 
-    frame.InputChanged:Connect(function(input)
+    J.track(frame.InputChanged:Connect(function(input)
         if quickButtonsLocked then return end
         if (input.UserInputType == Enum.UserInputType.MouseMovement
         or  input.UserInputType == Enum.UserInputType.Touch) and startPos then
@@ -1405,9 +1472,9 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
                 )
             end
         end
-    end)
+    end))
 
-    frame.InputEnded:Connect(function(input)
+    J.track(frame.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch
         or input.UserInputType == Enum.UserInputType.MouseButton1 then
             if dragging then
@@ -1420,26 +1487,18 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
                 task.delay(0.25, function() if frame.Parent then frame.BackgroundColor3 = old end end)
                 if onToggle then pcall(onToggle) end
             else
-                -- tap = toggle
-                btnState = not btnState
-                btnData.state = btnState
-                frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(35,35,45)
-                stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(80,80,100)
-                dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(100,100,120)
-                if onToggle then pcall(onToggle, btnState) end
+                -- แตะ = สลับจาก "สถานะจริง" ของฟังก์ชัน (ไม่ใช่สถานะที่ปุ่มจำไว้เอง)
+                local f = BCX.F and BCX.F[funcName]
+                local want
+                if f then want = not f.get() else want = not btnState end
+                if onToggle then pcall(onToggle, want) end
+                -- ทาสีตามสถานะจริงหลังสั่งเสร็จ (ถ้าสั่งไม่สำเร็จ ปุ่มจะไม่เขียวหลอก)
+                if f then btnData.set(f.get()) else btnData.set(want) end
                 saveQuickButtons()
             end
             dragging = false; startPos = nil
         end
-    end)
-
-    -- ให้ระบบอื่นสั่งเปลี่ยนสถานะ/สีของปุ่มได้ (ใช้ซิงก์กับสถานะบินจริง)
-    local function paint()
-        frame.BackgroundColor3 = btnState and Color3.fromRGB(0,200,80) or Color3.fromRGB(35,35,45)
-        stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(80,80,100)
-        dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(100,100,120)
-    end
-    btnData.set = function(v) btnState = v; btnData.state = v; paint() end
+    end))
 
     btnData.Frame = frame
     btnData.Label = label
@@ -1466,7 +1525,7 @@ local function removeAllQuickButtons()
     saveQuickButtons()
 end
 
--- ซิงก์สีปุ่มกับสถานะจริง (เช่น เปิด Vehicle Fly แล้วปุ่ม Fly ต้องดับ)
+-- ซิงก์สีปุ่มกับสถานะจริง
 function BCX.qbSync(name, state)
     for _, b in ipairs(QuickButtons) do
         if b.funcName == name and b.set and b.state ~= state then b.set(state) end
@@ -1494,8 +1553,11 @@ local function loadQuickButtons(callbackMap)
                     end
                 end
             elseif d.func and callbackMap[d.func] then
-                local btn = createQuickButton(d.func, d.x or 100, d.y or 100, d.size or 65, d.state or false, callbackMap[d.func])
-                if d.state then pcall(callbackMap[d.func], d.state) end
+                -- เริ่มจากสถานะจริงตอนนี้ แล้วค่อยสั่งตามที่เคยเซฟไว้
+                local f = BCX.F[d.func]
+                local real = f and f.get() or false
+                createQuickButton(d.func, d.x or 100, d.y or 100, d.size or 65, real, callbackMap[d.func])
+                if d.state and not real then pcall(callbackMap[d.func], true) end
             end
         end
     end)
@@ -1898,6 +1960,7 @@ local function startDrag(targetName)
     myHRP.CFrame = tgtHRP.CFrame * CFrame.new(0, 0, 2)
     task.wait(0.2)
     setNoclip(true); setTargetNoclip(targetName, true); cleanTargetPhysics(targetName)
+    if BCX.sync then BCX.sync("Noclip") end
     if dragConn then dragConn:Disconnect(); dragConn = nil end
     dragConn = rs.Heartbeat:Connect(function()
         if not dragActive then return end
@@ -1915,6 +1978,7 @@ local function stopDrag(targetName)
     if dragConn then dragConn:Disconnect(); dragConn = nil end
     stopFly(); cleanTargetPhysics(targetName); setTargetNoclip(targetName, false); setNoclip(false)
     BCX.flyRefreshQB()
+    if BCX.sync then BCX.sync("Noclip") end
 end
 
 -- ==================== WAYPOINT SYSTEM ====================
@@ -1966,6 +2030,220 @@ local function safeRefresh(dropdown)
     task.delay(0.1, function() refreshCooldown = false end)
     local newList = getPlayerList()
     pcall(function() dropdown:Refresh(newList) end)
+end
+
+-- ============================================================
+-- ==================== ระบบสถานะกลาง (SYNC) ====================
+-- ทุกฟังก์ชันแบบเปิด/ปิดมี get() = สถานะจริง, apply(state) = สั่งทำงานจริง
+-- ช่องทางทั้ง 3 (UI / คีย์ลัด / Quick Button) เรียก BCX.feat(name, state) เหมือนกันหมด
+-- แล้ว BCX.sync(name) จะดันสถานะจริงไปที่สวิตช์ UI + สีปุ่ม Quick Button
+-- ============================================================
+
+-- Tween Track (ตามติดผู้เล่น)
+BCX.tweenSession = 0
+function BCX.setTween(state)
+    isTweeningRelative = state and true or false
+    BCX.tweenSession = BCX.tweenSession + 1
+    local sid = BCX.tweenSession
+    if not isTweeningRelative then
+        if tempPlatform then pcall(function() tempPlatform:Destroy() end); tempPlatform = nil end
+        local h = getHRP()
+        if h then removeBodyVelocity(h) end
+        return
+    end
+    task.spawn(function()
+        while isTweeningRelative and sid == BCX.tweenSession do
+            local targetPlayer = players:FindFirstChild(selectedPlayerName)
+            local currentChar  = localPlayer.Character
+            local currentHRP   = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
+            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") and currentHRP then
+                local targetHRP = targetPlayer.Character.HumanoidRootPart
+                local targetPos = getTargetOffsetPosition(targetHRP, tweenDirection, tweenDistance)
+                local finalCF
+                if isAutoLooking then
+                    local lookTarget = targetHRP.Position
+                    if (lookTarget - targetPos).Magnitude > 0.001 then
+                        local forward = (lookTarget - targetPos).Unit
+                        local right = Vector3.new(0,1,0):Cross(forward)
+                        if right.Magnitude < 0.001 then right = Vector3.new(1,0,0) else right = right.Unit end
+                        local up = forward:Cross(right).Unit
+                        finalCF = CFrame.fromMatrix(targetPos, right, up, -forward)
+                    else finalCF = CFrame.new(targetPos) end
+                else finalCF = CFrame.new(targetPos) * (targetHRP.CFrame - targetHRP.CFrame.Position) end
+                updatePlatform(targetPos)
+                applyBodyVelocity(currentHRP, targetPos)
+                TweenService:Create(currentHRP, TweenInfo.new(0.15, Enum.EasingStyle.Linear), {CFrame=finalCF}):Play()
+            else if currentHRP then removeBodyVelocity(currentHRP) end end
+            task.wait(0.15)
+        end
+    end)
+end
+
+-- Safe Mode (เลือด < 50% วาร์ปหนี)
+BCX.safeSession = 0
+function BCX.setSafe(state)
+    safeModeEnabled = state and true or false
+    BCX.safeSession = BCX.safeSession + 1
+    local sid = BCX.safeSession
+    if not safeModeEnabled then return end
+    task.spawn(function()
+        while safeModeEnabled and sid == BCX.safeSession do
+            local myChar = localPlayer.Character
+            if myChar and myChar:FindFirstChild("Humanoid") and myChar:FindFirstChild("HumanoidRootPart") then
+                local hum = myChar.Humanoid
+                if hum.Health > 0 and (hum.Health/hum.MaxHealth) <= 0.5 then
+                    myChar.HumanoidRootPart.CFrame = CFrame.new(safeModeLocation)
+                    task.wait(2)
+                end
+            end
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- ==================== CLICK TP (ไม่ต้องใช้ไอเทม) ====================
+-- • คีย์ลัด (ค่าเริ่มต้น R): กดทีเดียว = วาร์ปไปจุดที่เมาส์ชี้, กดค้าง = วาร์ปตามเมาส์ต่อเนื่อง
+-- • โหมดวาร์ปคลิก (Quick Button / สวิตช์ "Click TP"): เปิดแล้วแตะ/คลิกตรงไหนของจอก็วาร์ปไปตรงนั้น
+BCX.ctpOn = false
+BCX.ctpHold = false
+BCX.ctpSession = 0
+
+function BCX.clickTPTo(ray)
+    local char = localPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.SeatPart or not ray then return end
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = { char }
+    rp.IgnoreWater = true
+    local res = workspace:Raycast(ray.Origin, ray.Direction * 5000, rp)
+    if res then
+        local rot = hrp.CFrame - hrp.CFrame.Position
+        hrp.CFrame = CFrame.new(res.Position + Vector3.new(0, 3, 0)) * rot
+        pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
+    end
+end
+
+local function ctpAtMouse()
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local m = UserInputService:GetMouseLocation()
+    BCX.clickTPTo(cam:ViewportPointToRay(m.X, m.Y))
+end
+
+J.track(UserInputService.InputBegan:Connect(function(input, gp)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if UserInputService:GetFocusedTextBox() then return end
+        if BCX.keyIs("Click TP Key", input) then
+            BCX.ctpHold = true -- กดค้างไว้ = เข้าโหมดวาร์ปคลิก (ยังไม่วาร์ปจนกว่าจะคลิก)
+        end
+    elseif (BCX.ctpOn or BCX.ctpHold) and not gp
+        and (input.UserInputType == Enum.UserInputType.MouseButton1
+          or input.UserInputType == Enum.UserInputType.Touch) then
+        local cam = workspace.CurrentCamera
+        if cam then BCX.clickTPTo(cam:ScreenPointToRay(input.Position.X, input.Position.Y)) end
+    end
+end))
+J.track(UserInputService.InputEnded:Connect(function(input)
+    if BCX.keyIs("Click TP Key", input) then
+        BCX.ctpHold = false
+        BCX.ctpSession = BCX.ctpSession + 1
+    end
+end))
+
+BCX.F = {
+    ["Noclip"] = {
+        get = function() return noclipEnabled end,
+        apply = function(s) setNoclip(s) end,
+        label = "Noclip",
+    },
+    ["Infinite Jump"] = {
+        get = function() return infiniteJumpEnabled end,
+        apply = function(s) setInfiniteJump(s) end,
+        label = "Infinite Jump",
+    },
+    ["Fly"] = {
+        get = function() return isFlying and flyMode == "Normal" end,
+        apply = function(s) if s then BCX.flySwitch("Normal") else BCX.flyOff("Normal") end end,
+        label = "Fly",
+    },
+    ["Vehicle Fly"] = {
+        get = function() return isFlying and flyMode == "Vehicle" end,
+        apply = function(s) if s then BCX.flySwitch("Vehicle") else BCX.flyOff("Vehicle") end end,
+        label = "Vehicle Fly",
+    },
+    ["Anti-Fling"] = {
+        get = function() return BCX.afOn end,
+        apply = function(s) BCX.setAF(s) end,
+        label = "Anti-Fling",
+    },
+    ["Fling"] = {
+        get = function() return BCX.flinging end,
+        apply = function(s)
+            if not s then BCX.flingStop(); return end
+            local mode = (BCX.flingMode == "All Players") and "All" or "Selected"
+            if mode == "Selected" and (not BCX.flingTarget or BCX.flingTarget == "") then
+                notify("Error", "Select a player first!"); return
+            end
+            local ok = BCX.flingRun(mode, function()
+                BCX.sync("Fling")
+                notify("Fling", "Fling finished", 2)
+            end)
+            if not ok then notify("Error", "Character not found!") end
+        end,
+        label = "Fling",
+    },
+    ["Safe Mode"] = {
+        get = function() return safeModeEnabled end,
+        apply = function(s) BCX.setSafe(s) end,
+        label = "Safe Mode",
+    },
+    ["Tween Track"] = {
+        get = function() return isTweeningRelative end,
+        apply = function(s) BCX.setTween(s) end,
+        label = "Tween Track",
+    },
+}
+
+BCX.F["Click TP"] = {
+    get = function() return BCX.ctpOn end,
+    apply = function(s) BCX.ctpOn = s and true or false end,
+    label = "Click TP",
+}
+
+-- ดันสถานะจริงไปที่ UI + Quick Button
+function BCX.sync(name)
+    local f = BCX.F[name]
+    if not f then return end
+    local s = f.get() and true or false
+    if BCX.qbSync then BCX.qbSync(name, s) end
+    local ui = BCX.UI[name]
+    if ui and ui.Set then pcall(function() ui:Set(s) end) end
+end
+
+-- จุดเดียวที่ทุกช่องทางเรียก: สั่งเปลี่ยนสถานะ (ถ้าตรงกับสถานะจริงอยู่แล้วจะไม่ทำซ้ำ) แล้วซิงก์ทั้งหมด
+-- src = "ui" เมื่อมาจาก callback ของสวิตช์ (กันวนลูปตอนซิงก์กลับ)
+function BCX.feat(name, state, src)
+    local f = BCX.F[name]
+    if not f then return end
+    state = state and true or false
+    if f.get() == state then
+        if src ~= "ui" then BCX.sync(name) end
+        return
+    end
+    local ok, err = pcall(f.apply, state)
+    if not ok then warn("[BCX] " .. tostring(name) .. ": " .. tostring(err)) end
+    BCX.sync(name)
+end
+
+-- กดสลับจากคีย์ลัด: พลิกจากสถานะจริง
+function BCX.kbToggle(name)
+    local f = BCX.F[name]
+    if not f then return end
+    local on = not f.get()
+    BCX.feat(name, on)
+    notify(name, f.get() and "เปิด" or "ปิด", 1.5)
 end
 
 -- ==================== UI: AIMBOT TAB ====================
@@ -2023,42 +2301,8 @@ TweenSection:Dropdown({ Title="Direction",    Values={"Behind","Front","Above","
 TweenSection:Input({   Title="Distance",      Value="5",    Placeholder="เช่น 3, 5, 10...",  Callback=function(v) local n=tonumber(v); if n then tweenDistance=n end end })
 TweenSection:Toggle({  Title="Auto Look",     Default=false, Callback=function(s) isAutoLooking=s end })
 TweenSection:Toggle({  Title="Create Platform Under Feet", Default=true, Callback=function(s) createPlatform=s; if not s and tempPlatform then tempPlatform:Destroy(); tempPlatform=nil end end })
-TweenSection:Toggle({  Title="Enable Relative Tween", Default=false, Callback=function(state)
-    isTweeningRelative = state
-    local myChar = localPlayer.Character
-    local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    if not isTweeningRelative then
-        if tempPlatform then tempPlatform:Destroy(); tempPlatform=nil end
-        if myHRP then removeBodyVelocity(myHRP) end
-    end
-    if isTweeningRelative then
-        task.spawn(function()
-            while isTweeningRelative do
-                local targetPlayer = players:FindFirstChild(selectedPlayerName)
-                local currentChar  = localPlayer.Character
-                local currentHRP   = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
-                if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") and currentHRP then
-                    local targetHRP = targetPlayer.Character.HumanoidRootPart
-                    local targetPos = getTargetOffsetPosition(targetHRP, tweenDirection, tweenDistance)
-                    local finalCF
-                    if isAutoLooking then
-                        local lookTarget = targetHRP.Position
-                        if (lookTarget - targetPos).Magnitude > 0.001 then
-                            local forward = (lookTarget - targetPos).Unit
-                            local right = Vector3.new(0,1,0):Cross(forward)
-                            if right.Magnitude < 0.001 then right = Vector3.new(1,0,0) else right = right.Unit end
-                            local up = forward:Cross(right).Unit
-                            finalCF = CFrame.fromMatrix(targetPos, right, up, -forward)
-                        else finalCF = CFrame.new(targetPos) end
-                    else finalCF = CFrame.new(targetPos) * (targetHRP.CFrame - targetHRP.CFrame.Position) end
-                    updatePlatform(targetPos)
-                    applyBodyVelocity(currentHRP, targetPos)
-                    TweenService:Create(currentHRP, TweenInfo.new(0.15, Enum.EasingStyle.Linear), {CFrame=finalCF}):Play()
-                else if currentHRP then removeBodyVelocity(currentHRP) end end
-                task.wait(0.15)
-            end
-        end)
-    end
+BCX.UI["Tween Track"] = TweenSection:Toggle({ Title="Enable Relative Tween", Default=false, Callback=function(state)
+    BCX.feat("Tween Track", state, "ui")
 end })
 
 -- Waypoints
@@ -2150,21 +2394,24 @@ DragSection:Toggle({ Title="Drag Player", Value=false, Callback=function(state)
 end })
 
 -- ==================== UI: LOCAL PLAYER TAB ====================
-local noclipToggleRef, infJumpToggleRef, flySpeedSliderRef
--- (flyToggleRef / vehFlyToggleRef ประกาศไว้แล้วในส่วน FLY SYSTEM)
+local flySpeedSliderRef
 
 local MovementSection = LocalPlayerTab:Section({ Title = "Movement", Icon = "move" })
-noclipToggleRef = MovementSection:Toggle({ Title="Noclip",         Desc="เดินทะลุกำแพง",   Value=false, Flag="NoclipToggle", Callback=function(s) setNoclip(s) end })
-infJumpToggleRef = MovementSection:Toggle({ Title="Infinite Jump", Desc="กระโดดไม่จำกัด", Value=false, Flag="InfJumpToggle", Callback=function(s) setInfiniteJump(s) end })
+BCX.UI["Noclip"] = MovementSection:Toggle({ Title="Noclip", Desc="เดินทะลุกำแพง", Value=false, Flag="NoclipToggle", Callback=function(s)
+    BCX.feat("Noclip", s, "ui")
+end })
+BCX.UI["Infinite Jump"] = MovementSection:Toggle({ Title="Infinite Jump", Desc="กระโดดไม่จำกัด", Value=false, Flag="InfJumpToggle", Callback=function(s)
+    BCX.feat("Infinite Jump", s, "ui")
+end })
 
--- Fly (ตัวละคร) — เปิดแล้ว Vehicle Fly จะถูกปิดเสมอ (flySwitch จัดการให้)
-flyToggleRef = MovementSection:Toggle({ Title="Fly", Desc="บินอย่างอิสระ", Value=false, Flag="FlyToggle", Callback=function(s)
-    if s then BCX.flySwitch("Normal") else BCX.flyOff("Normal") end
+-- Fly (ตัวละคร) — เปิดแล้ว Vehicle Fly จะถูกปิดเสมอ
+BCX.UI["Fly"] = MovementSection:Toggle({ Title="Fly", Desc="บินอย่างอิสระ", Value=false, Flag="FlyToggle", Callback=function(s)
+    BCX.feat("Fly", s, "ui")
 end })
 
 -- Vehicle Fly (ยกรถ/วัตถุที่นั่งไปด้วย) — เปิดแล้ว Fly ปกติจะถูกปิดเสมอ
-vehFlyToggleRef = MovementSection:Toggle({ Title="Vehicle Fly", Desc="บินพร้อมยานพาหนะ", Value=false, Flag="VehFlyToggle", Callback=function(s)
-    if s then BCX.flySwitch("Vehicle") else BCX.flyOff("Vehicle") end
+BCX.UI["Vehicle Fly"] = MovementSection:Toggle({ Title="Vehicle Fly", Desc="บินพร้อมยานพาหนะ", Value=false, Flag="VehFlyToggle", Callback=function(s)
+    BCX.feat("Vehicle Fly", s, "ui")
 end })
 
 flySpeedSliderRef = MovementSection:Slider({
@@ -2262,6 +2509,9 @@ MiscSpeedSection:Button({ Title="Reset to Default", Callback=function()
 end })
 
 local ToolsSection = MiscTab:Section({ Title = "Tools", Icon = "wrench" })
+BCX.UI["Click TP"] = ToolsSection:Toggle({ Title="Click TP Mode", Value=false, Callback=function(s)
+    BCX.feat("Click TP", s, "ui")
+end })
 ToolsSection:Button({ Title="Get TP Tool", Desc="เครื่องมือคลิกเพื่อวาร์ป", Callback=function()
     local plr = localPlayer
     if plr then
@@ -2278,17 +2528,6 @@ ToolsSection:Button({ Title="Get TP Tool", Desc="เครื่องมือ�
 end })
 
 -- ==================== FLING UI ====================
-function BCX.flingCB(state)
-    if not state then BCX.flingStop(); return end
-    local function setOff() pcall(function() BCX.flingToggle:Set(false) end) end
-    local mode = (BCX.flingMode == "All Players") and "All" or "Selected"
-    if mode == "Selected" and (not BCX.flingTarget or BCX.flingTarget == "") then
-        notify("Error", "Select a player first!"); setOff(); return
-    end
-    local ok = BCX.flingRun(mode, function() setOff(); notify("Fling", "Fling finished", 2) end)
-    if not ok then notify("Error", "Character not found!"); setOff() end
-end
-
 do
     local FlingSection = MiscTab:Section({ Title = "Fling", Icon = "wind" })
     BCX.flingDD = FlingSection:Dropdown({ Title="Select Fling Target", Values=getPlayerList(), Value="",
@@ -2296,7 +2535,10 @@ do
     FlingSection:Button({ Title="Refresh", Callback=function() safeRefresh(BCX.flingDD) end })
     FlingSection:Dropdown({ Title="Fling Mode", Values={"Selected Player","All Players"}, Value="Selected Player",
         Callback=function(v) BCX.flingMode = v end })
-    BCX.flingToggle = FlingSection:Toggle({ Title="Start Fling", Default=false, Callback=function(s) BCX.flingCB(s) end })
+    BCX.UI["Fling"] = FlingSection:Toggle({ Title="Start Fling", Default=false, Callback=function(s)
+        BCX.feat("Fling", s, "ui")
+    end })
+    BCX.flingToggle = BCX.UI["Fling"]
 end
 
 -- รายชื่อผู้เล่นอัปเดตเองทุกครั้งที่มีคนเข้า/ออก
@@ -2314,54 +2556,20 @@ task.delay(1, BCX.refreshDD)
 
 -- Safety อยู่ท้ายสุดของ Misc
 local SafetySection = MiscTab:Section({ Title = "Safety", Icon = "shield" })
-SafetySection:Toggle({ Title="Safe Mode (< 50% HP TP)", Default=false, Callback=function(state)
-    safeModeEnabled = state
-    if safeModeEnabled then
-        task.spawn(function()
-            while safeModeEnabled do
-                local myChar = localPlayer.Character
-                if myChar and myChar:FindFirstChild("Humanoid") and myChar:FindFirstChild("HumanoidRootPart") then
-                    local hum = myChar.Humanoid
-                    if hum.Health > 0 and (hum.Health/hum.MaxHealth) <= 0.5 then
-                        myChar.HumanoidRootPart.CFrame = CFrame.new(safeModeLocation)
-                        task.wait(2)
-                    end
-                end
-                task.wait(0.5)
-            end
-        end)
-    end
+BCX.UI["Safe Mode"] = SafetySection:Toggle({ Title="Safe Mode (< 50% HP TP)", Default=false, Callback=function(state)
+    BCX.feat("Safe Mode", state, "ui")
 end })
-BCX.afToggle = SafetySection:Toggle({ Title="Anti-Fling", Default=false, Callback=function(state) BCX.setAF(state) end })
+BCX.UI["Anti-Fling"] = SafetySection:Toggle({ Title="Anti-Fling", Default=false, Callback=function(state)
+    BCX.feat("Anti-Fling", state, "ui")
+end })
+BCX.afToggle = BCX.UI["Anti-Fling"]
 
 -- ==================== CALLBACK MAP สำหรับ Quick Buttons ====================
-local TOGGLE_CALLBACKS = {
-    ["Noclip"] = function(state)
-        setNoclip(state)
-        if noclipToggleRef and noclipToggleRef.Set then pcall(function() noclipToggleRef:Set(state) end) end
-    end,
-    ["Infinite Jump"] = function(state)
-        setInfiniteJump(state)
-        if infJumpToggleRef and infJumpToggleRef.Set then pcall(function() infJumpToggleRef:Set(state) end) end
-    end,
-    -- Fly / Vehicle Fly: สั่งบินตรงๆ ทันที แล้วซิงก์สวิตช์ใน UI (flyToggle ปิดอีกโหมดให้เอง)
-    ["Fly"]         = function(state) BCX.flyToggle("Normal",  state) end,
-    ["Vehicle Fly"] = function(state) BCX.flyToggle("Vehicle", state) end,
-    ["Anti-Fling"] = function(state)
-        BCX.setAF(state)
-        if BCX.afToggle and BCX.afToggle.Set then pcall(function() BCX.afToggle:Set(state) end) end
-    end,
-    ["Fling"] = function(state)
-        if BCX.flingToggle and BCX.flingToggle.Set then pcall(function() BCX.flingToggle:Set(state) end)
-        else BCX.flingCB(state) end
-    end,
-    ["Safe Mode"] = function(state)
-        safeModeEnabled = state
-    end,
-    ["Tween Track"] = function(state)
-        isTweeningRelative = state
-    end,
-}
+-- ทุกปุ่มเรียก BCX.feat เหมือนกับ UI และคีย์ลัด (สถานะจริงที่เดียว)
+local TOGGLE_CALLBACKS = {}
+for name in pairs(BCX.F) do
+    TOGGLE_CALLBACKS[name] = function(state) BCX.feat(name, state) end
+end
 
 -- ==================== UI: SETTINGS TAB ====================
 -- [0] Language + Show Descriptions + UI Layout Mode
@@ -2408,7 +2616,9 @@ QBSection:Button({ Title="Add Button", Desc="สร้างปุ่มลอ�
     for _, btn in ipairs(QuickButtons) do
         if btn.funcName == selectedQBFunc then notify("มีอยู่แล้ว", selectedQBFunc.." มีปุ่มแล้ว"); return end
     end
-    createQuickButton(selectedQBFunc, 80 + #QuickButtons*75, 200, 65, false, TOGGLE_CALLBACKS[selectedQBFunc])
+    local f = BCX.F[selectedQBFunc]
+    local real = f and f.get() or false   -- ปุ่มใหม่เริ่มจากสถานะจริง
+    createQuickButton(selectedQBFunc, 80 + #QuickButtons*75, 200, 65, real, TOGGLE_CALLBACKS[selectedQBFunc])
     saveQuickButtons()
     notify("เพิ่มแล้ว", "ปุ่ม "..selectedQBFunc.." บนหน้าจอ")
 end })
@@ -2420,29 +2630,21 @@ QBSection:Button({ Title="Remove All Buttons", Callback=function()
     removeAllQuickButtons(); notify("ลบแล้ว","ลบปุ่มทั้งหมดแล้ว")
 end })
 
--- [B] Keybinds
+-- [B] Keybinds (ทุกปุ่มพลิกจากสถานะจริง แล้วซิงก์ UI + Quick Button)
 local KeybindSection = SettingsTab:Section({ Title = "Keybinds", Icon = "keyboard" })
-KeybindSection:Keybind({ Title="Noclip",        Value="V", Callback=function()
-    noclipEnabled = not noclipEnabled; setNoclip(noclipEnabled)
-    if noclipToggleRef and noclipToggleRef.Set then pcall(function() noclipToggleRef:Set(noclipEnabled) end) end
-    notify("Noclip", noclipEnabled and "เปิด" or "ปิด", 1.5)
-end })
-KeybindSection:Keybind({ Title="Infinite Jump",  Value="T", Callback=function()
-    infiniteJumpEnabled = not infiniteJumpEnabled; setInfiniteJump(infiniteJumpEnabled)
-    if infJumpToggleRef and infJumpToggleRef.Set then pcall(function() infJumpToggleRef:Set(infiniteJumpEnabled) end) end
-    notify("Infinite Jump", infiniteJumpEnabled and "เปิด" or "ปิด", 1.5)
-end })
--- Fly / Vehicle Fly: กดครั้งเดียว สั่งบินตรงๆ ทันที
-KeybindSection:Keybind({ Title="Fly", Value="F", Callback=function()
-    local on = not (isFlying and flyMode == "Normal")
-    BCX.flyToggle("Normal", on)
-    notify("Fly", on and "เปิด" or "ปิด", 1.5)
-end })
-KeybindSection:Keybind({ Title="Vehicle Fly", Value="G", Callback=function()
-    local on = not (isFlying and flyMode == "Vehicle")
-    BCX.flyToggle("Vehicle", on)
-    notify("Vehicle Fly", on and "เปิด" or "ปิด", 1.5)
-end })
+KeybindSection:Keybind({ Title="Noclip",         Value="V", Callback=function() BCX.kbToggle("Noclip") end })
+KeybindSection:Keybind({ Title="Infinite Jump",  Value="T", Callback=function() BCX.kbToggle("Infinite Jump") end })
+KeybindSection:Keybind({ Title="Fly",            Value="F", Callback=function() BCX.kbToggle("Fly") end })
+KeybindSection:Keybind({ Title="Vehicle Fly",    Value="G", Callback=function() BCX.kbToggle("Vehicle Fly") end })
+-- คีย์ลัดที่จัดการเองผ่าน InputBegan (ปรับปุ่มได้ ค่าจริงอ่านจาก BCX.KB)
+BCX.KB["Fly Up"]       = KeybindSection:Keybind({ Title="Fly Up",       Value="Space",       Callback=BCX.kbRec("Fly Up") })
+BCX.KB["Fly Down"]     = KeybindSection:Keybind({ Title="Fly Down",     Value="LeftControl", Callback=BCX.kbRec("Fly Down") })
+BCX.KB["Free Mouse"]   = KeybindSection:Keybind({ Title="Free Mouse",   Value="Y",           Callback=BCX.kbRec("Free Mouse") })
+BCX.KB["Click TP Key"] = KeybindSection:Keybind({ Title="Click TP Key", Value="R",           Callback=BCX.kbRec("Click TP Key") })
+BCX.KB["Toggle UI"]    = KeybindSection:Keybind({ Title="Toggle UI",    Value="LeftAlt",     Callback=BCX.kbRec("Toggle UI", function(v)
+    local kc = Enum.KeyCode[v]
+    if kc then Window:SetToggleKey(kc) end
+end) })
 
 -- ปุ่ม Save ถาวร: เป็นหนึ่งใน "ปุ่มลัดบนจอ (ลากได้)" ลบไม่ได้
 function BCX.saveLabelText() return (BCX.Lang == "Thai") and "บันทึกเดี๋ยวนี้" or "Save Now" end
@@ -2464,11 +2666,18 @@ end)
 
 task.delay(1.5, function()
     if BCX.dead then return end
+    -- ใช้ปุ่มเปิด/ปิดเมนูที่เซฟไว้ (ถ้ามี)
+    pcall(function()
+        local kc = BCX.keyCode("Toggle UI")
+        if kc then Window:SetToggleKey(kc) end
+    end)
     loadQuickButtons(TOGGLE_CALLBACKS)
+    -- ซิงก์ทุกฟังก์ชันอีกรอบหลังโหลดเสร็จ ให้ UI กับปุ่มตรงกับสถานะจริง
+    for name in pairs(BCX.F) do pcall(BCX.sync, name) end
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.1 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.3 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
@@ -2491,7 +2700,7 @@ task.spawn(function()
 
         cursorImg = Instance.new("ImageLabel")
         cursorImg.BackgroundTransparency = 1
-        cursorImg.Size = UDim2.fromOffset(48, 48)
+        cursorImg.Size = UDim2.fromOffset(64, 64)
         cursorImg.AnchorPoint = Vector2.new(0.5, 0.5)
         cursorImg.Image = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
         cursorImg.ZIndex = 10
@@ -2611,8 +2820,16 @@ task.spawn(function()
     end
     BCX.setFree = setFree
 
+    -- อัปเดตตำแหน่งเมาส์ปลอมทันทีที่ขยับ (ไม่รอเฟรมถัดไป) ลดอาการกระตุก/หน่วง
+    J.track(UserInputService.InputChanged:Connect(function(input)
+        if FM.on and cursorImg and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local m = UserInputService:GetMouseLocation()
+            cursorImg.Position = UDim2.fromOffset(m.X, m.Y)
+        end
+    end))
+
     J.track(UserInputService.InputBegan:Connect(function(input)
-        if input.KeyCode ~= Enum.KeyCode.Y then return end
+        if not BCX.keyIs("Free Mouse", input) then return end
         if UserInputService:GetFocusedTextBox() then return end
         setFree(not FM.on)
     end))
@@ -2650,6 +2867,23 @@ J.onClean(function()
     local hrp = getHRP()
     if hrp then pcall(removeBodyVelocity, hrp) end
     if tempPlatform then pcall(function() tempPlatform:Destroy() end); tempPlatform = nil end
+
+    -- 2.5) หยุดลูปที่เหลือ + เก็บของตกค้างทั้งหมด
+    BCX.ctpOn = false; BCX.ctpHold = false
+    BCX.ctpSession = BCX.ctpSession + 1
+    BCX.tweenSession = BCX.tweenSession + 1
+    BCX.safeSession = BCX.safeSession + 1
+    BCX.xhair.on = false
+    if QuickButtonGui then pcall(function() QuickButtonGui:Destroy() end); QuickButtonGui = nil end
+    QuickButtons = {}
+    pcall(function()
+        for _, d in ipairs(workspace:GetDescendants()) do
+            if d.Name == "ESP_Highlight" or d.Name == "ObjESP_Highlight"
+            or d.Name == "TweenPlatform" or d.Name == "TweenBodyVelocity" then
+                pcall(function() d:Destroy() end)
+            end
+        end
+    end)
 
     -- 3) ล้าง ESP / Drawing
     local plist = {}
