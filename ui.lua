@@ -72,6 +72,8 @@ local BCX = {
     afOn = false, afConn = nil, maxVel = 90,
     flinging = false, flingAllOn = false, flingTarget = "", flingConn = nil, flingOrigCF = nil,
 }
+-- ตรวจอุปกรณ์: มือถือ/แท็บเล็ต (จอสัมผัสและไม่มีคีย์บอร์ด) = แสดงแบบมี Section, คอม = แสดงแบบหัวข้อบรรทัดเดียว
+BCX.isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 pcall(function()
     if isfile and isfile("BlackCrown-X/lang.txt") then
         local l = readfile("BlackCrown-X/lang.txt")
@@ -123,52 +125,96 @@ local customEmoteIdInput = ""
 local customTrack = nil
 local isPlayingCustomEmote = false
 
+BCX.emoteTracks = {}
+BCX.emoteAnimator = nil
+
+function BCX.getAnimator(char)
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    return hum:FindFirstChildOfClass("Animator") or hum
+end
+
+function BCX.clearCopiedTracks()
+    for _, tr in pairs(BCX.emoteTracks) do
+        pcall(function() tr:Stop(0.1); tr:Destroy() end)
+    end
+    BCX.emoteTracks = {}
+    BCX.emoteAnimator = nil
+end
+
 local function stopMirroring()
     if mirrorConnection then mirrorConnection:Disconnect(); mirrorConnection = nil end
+    BCX.clearCopiedTracks()
 end
 
-local function getMotors(character)
-    local motors = {}
-    if not character then return motors end
-    for _, desc in ipairs(character:GetDescendants()) do
-        if desc:IsA("Motor6D") then motors[desc.Name] = desc end
-    end
-    return motors
-end
-
+-- ก๊อปท่าทาง: เล่นแอนิเมชันเดียวกับที่เป้าหมายกำลังเล่นอยู่ (คนอื่นเห็นด้วย) แล้วซิงก์เวลาให้ตรงกัน
 local function startMirroringTarget(targetPlayerName)
     stopMirroring()
-    mirrorConnection = rs.RenderStepped:Connect(function()
+    mirrorConnection = rs.Heartbeat:Connect(function()
         if not isCopyingPlayerEmote then stopMirroring(); return end
-        local targetPlayer = players:FindFirstChild(targetPlayerName)
-        local myChar = localPlayer.Character
-        if targetPlayer and targetPlayer.Character and myChar then
-            local targetMotors = getMotors(targetPlayer.Character)
-            local myMotors = getMotors(myChar)
-            for name, targetMotor in pairs(targetMotors) do
-                local myMotor = myMotors[name]
-                if myMotor then myMotor.Transform = targetMotor.Transform end
+        local tp = players:FindFirstChild(targetPlayerName)
+        local tAnim = tp and BCX.getAnimator(tp.Character)
+        local myAnim = BCX.getAnimator(localPlayer.Character)
+        if not tAnim or not myAnim then return end
+        if BCX.emoteAnimator ~= myAnim then
+            BCX.clearCopiedTracks() -- เกิดใหม่ / ตัวละครเปลี่ยน
+            BCX.emoteAnimator = myAnim
+        end
+        local okP, playing = pcall(function() return tAnim:GetPlayingAnimationTracks() end)
+        if not okP or type(playing) ~= "table" then return end
+        local seen = {}
+        for _, t in ipairs(playing) do
+            local id = t.Animation and t.Animation.AnimationId
+            if id and id ~= "" then
+                seen[id] = true
+                local mine = BCX.emoteTracks[id]
+                if not mine then
+                    local anim = Instance.new("Animation")
+                    anim.AnimationId = id
+                    local okL, tr = pcall(function() return myAnim:LoadAnimation(anim) end)
+                    if okL and tr then
+                        tr.Priority = Enum.AnimationPriority.Action4
+                        tr.Looped = t.Looped
+                        tr:Play(0.1, 1, t.Speed ~= 0 and t.Speed or 1)
+                        pcall(function() tr.TimePosition = t.TimePosition end)
+                        BCX.emoteTracks[id] = tr
+                    end
+                else
+                    if not mine.IsPlaying then mine:Play(0.1, 1, t.Speed ~= 0 and t.Speed or 1) end
+                    if math.abs(mine.TimePosition - t.TimePosition) > 0.3 then
+                        pcall(function() mine.TimePosition = t.TimePosition end)
+                    end
+                end
+            end
+        end
+        for id, tr in pairs(BCX.emoteTracks) do
+            if not seen[id] then
+                pcall(function() tr:Stop(0.15); tr:Destroy() end)
+                BCX.emoteTracks[id] = nil
             end
         end
     end)
 end
 
 local function playEmoteById(animId)
-    local char = localPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum then return nil end
-    local animator = hum:FindFirstChildOfClass("Animator") or hum
+    local animator = BCX.getAnimator(localPlayer.Character)
+    if not animator then return nil end
     local cleanId = tostring(animId):gsub("%D", "")
     if cleanId == "" then return nil end
     local anim = Instance.new("Animation")
     anim.AnimationId = "rbxassetid://" .. cleanId
     local success, track = pcall(function() return animator:LoadAnimation(anim) end)
-    if success and track then track:Play(); return track end
+    if success and track then
+        track.Priority = Enum.AnimationPriority.Action4
+        track.Looped = true
+        track:Play()
+        return track
+    end
     return nil
 end
 
 local function stopCustomEmotes()
-    if customTrack then customTrack:Stop(); customTrack = nil end
+    if customTrack then pcall(function() customTrack:Stop(); customTrack:Destroy() end); customTrack = nil end
 end
 
 -- ==================== TWEEN SYSTEM ====================
@@ -875,44 +921,99 @@ function BCX.wrapSection(sec)
     end
 end
 
+function BCX.head(t) return "── " .. tostring(t) .. " ──" end
+
 function BCX.NewTab(opts)
     local key = opts.Title
     if BCX.I18N[key] then opts.Title = BCX.title(key) end
     local tab = Window:Tab(opts)
     table.insert(BCX.TabReg, { obj = tab, key = key })
-    pcall(function()
-        local origSection = tab.Section
-        tab.Section = function(self, so)
-            so = so or {}
-            local skey = so.Title
-            if skey and BCX.I18N[skey] then so.Title = BCX.title(skey) end
-            local sec = origSection(self, so)
-            table.insert(BCX.TabReg, { obj = sec, key = skey })
-            BCX.wrapSection(sec)
-            return sec
-        end
-    end)
+    if BCX.isMobile then
+        -- มือถือ: ใช้ Section แบบเดิม (กล่องแยกหมวด)
+        pcall(function()
+            local origSection = tab.Section
+            tab.Section = function(self, so)
+                so = so or {}
+                local skey = so.Title
+                if skey and BCX.I18N[skey] then so.Title = BCX.title(skey) end
+                local sec = origSection(self, so)
+                table.insert(BCX.TabReg, { obj = sec, key = skey })
+                BCX.wrapSection(sec)
+                return sec
+            end
+        end)
+        return tab
+    end
+    -- คอม: ไม่มีกล่อง Section
+    local origParagraph = tab.Paragraph
+    BCX.wrapSection(tab)
+    -- ไม่สร้างกล่อง Section อีกต่อไป: ใส่เป็น "หัวข้อ" บรรทัดเดียว แล้วใส่ปุ่มลงในแท็บตรงๆ
+    tab.Section = function(self, so)
+        so = so or {}
+        local skey = so.Title
+        local shown = (skey and BCX.I18N[skey]) and BCX.title(skey) or skey
+        local ok, el = pcall(origParagraph, tab, { Title = BCX.head(shown) })
+        if ok and el then table.insert(BCX.Registry, { el = el, key = skey, kind = "Heading" }) end
+        return tab
+    end
     return tab
 end
 
-function BCX.apply()
-    for _, r in ipairs(BCX.TabReg) do
-        if r.key and BCX.I18N[r.key] then
-            pcall(function() r.obj:SetTitle(BCX.title(r.key)) end)
-        end
+-- ถ้า SetTitle ของ WindUI ไม่เปลี่ยนข้อความบนจอ ให้แก้ข้อความบน GUI ตรงๆ (แท็บด้านข้าง/หัวข้อ)
+function BCX.guiRoots()
+    local roots = {}
+    pcall(function()
+        local g = Window.UIElements.Main:FindFirstAncestorOfClass("ScreenGui")
+        if g then table.insert(roots, g) end
+    end)
+    if #roots == 0 then
+        pcall(function() local g = game:GetService("CoreGui"):FindFirstChild("WindUI"); if g then table.insert(roots, g) end end)
+        pcall(function() local g = gethui and gethui():FindFirstChild("WindUI"); if g then table.insert(roots, g) end end)
+        pcall(function() local g = localPlayer.PlayerGui:FindFirstChild("WindUI"); if g then table.insert(roots, g) end end)
     end
-    for _, r in ipairs(BCX.Registry) do
-        if r.key and BCX.I18N[r.key] and r.el then
-            local el = r.el
-            pcall(function() el:SetTitle(BCX.title(r.key)) end)
-            local d = BCX.desc(r.key)
-            if d then pcall(function() el:SetDesc(d) end) end
-            if r.kind == "Input" then
-                local ph = BCX.ph(r.key)
-                if ph then pcall(function() el:SetPlaceholder(ph) end) end
+    return roots
+end
+
+function BCX.swapGuiText(map)
+    for _, root in ipairs(BCX.guiRoots()) do
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") then
+                local to = map[d.Text]
+                if to and d.Text ~= to then pcall(function() d.Text = to end) end
             end
         end
     end
+end
+
+function BCX.apply()
+    local thai = (BCX.Lang == "Thai")
+    local map = {}
+    for _, r in ipairs(BCX.TabReg) do
+        local e = r.key and BCX.I18N[r.key]
+        if e then
+            pcall(function() r.obj:SetTitle(BCX.title(r.key)) end)
+            if e.t then map[thai and r.key or e.t] = BCX.title(r.key) end
+        end
+    end
+    for _, r in ipairs(BCX.Registry) do
+        local e = r.key and BCX.I18N[r.key]
+        if e and r.el then
+            local el = r.el
+            if r.kind == "Heading" then
+                pcall(function() el:SetTitle(BCX.head(BCX.title(r.key))) end)
+                if e.t then map[BCX.head(thai and r.key or e.t)] = BCX.head(BCX.title(r.key)) end
+            else
+                pcall(function() el:SetTitle(BCX.title(r.key)) end)
+                local d = BCX.desc(r.key)
+                if d then pcall(function() el:SetDesc(d) end) end
+                if r.kind == "Input" then
+                    local ph = BCX.ph(r.key)
+                    if ph then pcall(function() el:SetPlaceholder(ph) end) end
+                end
+            end
+        end
+    end
+    BCX.swapGuiText(map)
 end
 
 function BCX.setLang(lang)
@@ -1802,39 +1903,45 @@ WaypointSection:Input({ Title="Waypoint Name", Placeholder="พิมพ์ช�
 isRebuildingWaypoint = false
 waypointDropdown = nil  -- จะสร้างใน rebuildWPDrop ด้านล่าง
 
-local function rebuildWPDrop()
-    if isRebuildingWaypoint then return end
-    isRebuildingWaypoint = true
-
-    -- destroy dropdown เก่า (Frame ที่ WindUI สร้าง)
-    if waypointDropdown then
-        pcall(function()
-            if waypointDropdown.Frame and waypointDropdown.Frame.Parent then
-                waypointDropdown.Frame:Destroy()
-            end
-        end)
-        waypointDropdown = nil
-    end
-
-    selectedWaypointName = ""
-    local names = getWaypointNamesList()
-
-    -- สร้าง Dropdown ใหม่ใน WaypointSection เดิม
+function BCX.createWPDropdown(names)
     waypointDropdown = WaypointSection:Dropdown({
         Title    = "Select Waypoint",
-        Desc     = "เลือกจุดที่ต้องการเทเลพอร์ต",
         Values   = names,
         Value    = "",
         Callback = function(val)
-            selectedWaypointName = (val ~= "ไม่มีจุดเซฟ" and val ~= "No saved waypoints") and val or ""
+            selectedWaypointName = (waypointsData[val] ~= nil) and val or ""
         end
     })
+end
 
-    task.delay(0.2, function() isRebuildingWaypoint = false end)
+-- selectName: ชื่อจุดที่ให้เลือกอัตโนมัติหลังรีเฟรช (เช่น จุดที่เพิ่งเซฟ)
+local function rebuildWPDrop(selectName)
+    local names = getWaypointNamesList()
+    local pick = (selectName and waypointsData[selectName] ~= nil) and selectName or nil
+    selectedWaypointName = pick or ""
+
+    local done = false
+    if waypointDropdown then
+        local okR = pcall(function() waypointDropdown:Refresh(names) end)
+        if okR then
+            done = true
+            if pick then pcall(function() waypointDropdown:Select(pick) end) end
+        end
+    end
+    if not done then
+        -- สำรอง: ลบอันเก่าแล้วสร้างใหม่
+        if waypointDropdown then
+            pcall(function() waypointDropdown:Destroy() end)
+            pcall(function() if waypointDropdown.Frame then waypointDropdown.Frame:Destroy() end end)
+            waypointDropdown = nil
+        end
+        BCX.createWPDropdown(names)
+        if pick then pcall(function() waypointDropdown:Select(pick) end) end
+    end
 end
 
 -- สร้างครั้งแรก
-rebuildWPDrop()
+BCX.createWPDropdown(getWaypointNamesList())
 
 WaypointSection:Button({ Title="Save Current Position", Callback=function()
     local trimmed = currentInputName:match("^%s*(.-)%s*$")
@@ -1843,7 +1950,7 @@ WaypointSection:Button({ Title="Save Current Position", Callback=function()
     if root then
         waypointsData[trimmed] = { root.CFrame:GetComponents() }
         saveWaypointsToFile()
-        rebuildWPDrop()          -- ไม่ต้อง task.delay — สร้างใหม่เลย
+        rebuildWPDrop(trimmed)
         notify("Saved!", "เซฟ: " .. trimmed)
     else notify("Error", "ไม่พบตัวละคร!") end
 end })
@@ -1942,12 +2049,24 @@ SaveSection:Button({ Title="Load Saved Settings", Callback=function() pcall(func
 -- ==================== UI: MISC TAB ====================
 -- ลำดับใหม่: Emote → Speed → Tools → Safety (ท้ายสุด)
 local EmoteSection = MiscTab:Section({ Title = "Emote & Animation", Icon = "smile" })
-local emotePlayerDropdown = EmoteSection:Dropdown({ Title="Select Target", Values=getPlayerList(), Value="", Callback=function(v) emoteTargetPlayerName=v end })
+local emotePlayerDropdown = EmoteSection:Dropdown({ Title="Select Target", Values=getPlayerList(), Value="", Callback=function(v)
+    emoteTargetPlayerName = (v ~= "None") and v or ""
+    if isCopyingPlayerEmote and emoteTargetPlayerName ~= "" then startMirroringTarget(emoteTargetPlayerName) end
+end })
 EmoteSection:Button({ Title="Refresh",  Callback=function() safeRefresh(emotePlayerDropdown) end })
-EmoteSection:Toggle({ Title="Copy Player Movement", Default=false, Callback=function(state)
+BCX.copyToggle = EmoteSection:Toggle({ Title="Copy Player Movement", Default=false, Callback=function(state)
     isCopyingPlayerEmote = state
-    if not state then stopMirroring(); stopCustomEmotes()
-    else if emoteTargetPlayerName ~= "" then stopCustomEmotes(); startMirroringTarget(emoteTargetPlayerName) end end
+    if not state then
+        stopMirroring()
+    else
+        if emoteTargetPlayerName == "" then
+            notify("Error", "Select a player first!")
+            isCopyingPlayerEmote = false
+            pcall(function() BCX.copyToggle:Set(false) end)
+            return
+        end
+        stopCustomEmotes(); startMirroringTarget(emoteTargetPlayerName)
+    end
 end })
 EmoteSection:Input({ Title="Custom Emote ID", Placeholder="ใส่หมายเลข ID เช่น 369675713...", Callback=function(val) customEmoteIdInput=val end })
 EmoteSection:Toggle({ Title="Play Custom ID Emote", Default=false, Callback=function(state)
