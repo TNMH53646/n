@@ -816,21 +816,21 @@ local function E(key, th, d, dt, ph, pt)
 end
 
 -- Tabs
-E("Main", "หลัก")
-E("Aimbot", "เล็งอัตโนมัติ")
-E("ESP", "มองทะลุ (ESP)")
+E("Main", "เมนูหลัก")
+E("Aimbot", "ล็อคเป้า")
+E("ESP", "มองทะลุ")
 E("Teleport", "เทเลพอร์ต")
 E("Local Player", "ตัวละคร")
-E("Misc", "เบ็ดเตล็ด")
+E("Misc", "อื่นๆ")
 E("Settings", "ตั้งค่า")
 
 -- Sections
-E("Aimbot Core", "ระบบเล็งอัตโนมัติ")
+E("Aimbot Core", "เล็งอัตโนมัติ")
 E("FOV Circle", "วงกลม FOV")
 E("Visual Toggles", "ตัวเลือกการแสดงผล")
 E("Object Search ESP", "ค้นหาวัตถุ (ESP)")
 E("Player Teleport & Tween", "วาร์ปไปหาผู้เล่น")
-E("Tween Tracking", "ตามติดผู้เล่น")
+E("Tween Tracking", "ติดตามผู้เล่น")
 E("Saved Waypoints", "จุดที่บันทึกไว้")
 E("Movement", "การเคลื่อนที่")
 E("Speed Lock", "ล็อกความเร็ว")
@@ -839,7 +839,7 @@ E("Emote & Animation", "ท่าทางและแอนิเมชัน")
 E("Speed Controls", "ควบคุมความเร็ว")
 E("Tools", "เครื่องมือ")
 E("Safety", "ความปลอดภัย")
-E("Fling", "ฟลิง (ดีดผู้เล่น)")
+E("Fling", "ดีดผู้เล่น")
 E("Language", "ภาษา")
 E("Quick Buttons (Draggable)", "ปุ่มลัดบนจอ (ลากได้)")
 E("Keybinds", "ปุ่มคีย์ลัด")
@@ -868,9 +868,9 @@ E("UI Layout Mode", "รูปแบบ UI",
   "Auto = ตรวจอุปกรณ์เอง, PC = หัวข้อบรรทัดเดียว, Mobile = กล่องแยกหมวด (เลือกแล้ว UI จะถูกสร้างใหม่ทันที)")
 
 -- Aimbot
-E("Enable Aimbot", "เปิดเล็งอัตโนมัติ",
+E("Enable Aimbot", "เปิดล็อคเป้า",
   "Auto-aims at the nearest player while you hold right-click.",
-  "เล็งไปที่ผู้เล่นที่ใกล้ที่สุดอัตโนมัติ ขณะกดคลิกขวาค้างไว้")
+  "ล็อคไปที่ผู้เล่นที่ใกล้ที่สุดอัตโนมัติ ขณะกดคลิกขวาค้างไว้")
 E("Wallcheck", "เช็คกำแพง",
   "Won't lock onto players hiding behind walls.",
   "ไม่ล็อกเป้าผู้เล่นที่อยู่หลังกำแพง")
@@ -881,20 +881,20 @@ E("Smoothness", "ความนุ่มของการเล็ง",
   "1 = snaps instantly. Bigger number = slower, smoother aim.",
   "1 = ล็อกทันที ยิ่งเลขมากยิ่งนุ่มและช้าลง",
   "1 = instant, 5 = smooth...", "1 = ล็อกทันที, 5 = นุ่ม...")
-E("Crosshair", "ครอสแฮร์กลางจอ",
+E("Crosshair", "เป้ากลางจอ",
   "Draws a crosshair at the center of the screen.", "วาดเครื่องหมายเล็งกลางหน้าจอ")
-E("Crosshair Size", "ขนาดครอสแฮร์",
-  "Size of the crosshair.", "ขนาดของครอสแฮร์")
-E("Crosshair Color", "สีครอสแฮร์",
-  "Color of the crosshair.", "สีของครอสแฮร์")
+E("Crosshair Size", "ขนาดเป้าเล็ง",
+  "Size of the crosshair.", "ขนาดของเป้าเล็ง")
+E("Crosshair Color", "สีเป้าเล็ง",
+  "Color of the crosshair.", "สีของเป้าเล็ง")
 E("Enable FOV", "เปิดวงกลม FOV",
   "Shows a circle on screen. Aimbot only targets players inside it.",
   "แสดงวงกลมบนจอ และเล็งเฉพาะผู้เล่นที่อยู่ในวงกลม")
-E("FOV Radius", "ขนาดวงกลม FOV",
+E("FOV Radius", "ขนาดวง FOV",
   "Size of the FOV circle in pixels.",
-  "ขนาดของวงกลม FOV (พิกเซล)",
+  "ขนาดของวง FOV (พิกเซล)",
   "e.g. 100, 150...", "เช่น 100, 150...")
-E("FOV Color", "สีวงกลม FOV",
+E("FOV Color", "สีวง FOV",
   "Color of the FOV circle.", "สีของวงกลม FOV")
 
 -- ESP
@@ -915,10 +915,10 @@ E("Tracer Line", "เส้นนำทาง",
   "ลากเส้นจากหน้าจอไปหาผู้เล่นแต่ละคน")
 E("Highlight", "ไฮไลต์ตัวผู้เล่น",
   "Makes players glow so they stand out.",
-  "ทำให้ตัวผู้เล่นเรืองแสง เห็นเด่นชัด")
+  "ทำให้ตัวผู้เล่นเรืองแสง")
 E("Mic Indicator", "ไอคอนไมค์",
-  "Shows a mic icon by players; it turns green when they talk.",
-  "แสดงไอคอนไมค์ข้างผู้เล่น เป็นสีเขียวตอนกำลังพูด")
+  "Shows a mic icon by players; it turns green when they talk. (dont use it not fix)",
+  "แสดงไอคอนไมค์ข้างผู้เล่น เป็นสีเขียวตอนกำลังพูด (อย่าใช้ไม่ได้แก้)")
 E("Enemy / Default Color", "สีศัตรู / สีปกติ",
   "Color used for normal players.", "สีที่ใช้กับผู้เล่นทั่วไป")
 E("Friend Color", "สีเพื่อน",
@@ -1033,7 +1033,7 @@ E("Auto-Save Interval (min)", "ช่วงเวลาบันทึก (น�
 E("Enable Auto-Save", "เปิดบันทึกอัตโนมัติ",
   "Saves your settings automatically on a timer.",
   "บันทึกการตั้งค่าให้เองตามเวลาที่ตั้งไว้")
-E("Save Now", "บันทึกเดี๋ยวนี้",
+E("Save", "บันทึก",
   "Saves your current settings right now.",
   "บันทึกการตั้งค่าตอนนี้ทันที")
 E("Load Saved Settings", "โหลดค่าที่บันทึก",
