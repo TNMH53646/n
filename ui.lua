@@ -2824,7 +2824,8 @@ Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 -- เปิด: ซ่อนเมาส์/crosshair ของเกม + วาดเมาส์ของเราแทน | ปิด: คืนของเดิม
 task.spawn(function()
     local FM = { on = false, hidden = {}, prevBehavior = nil, prevIcon = nil, prevFirst = false, prevMouseIcon = nil,
-                 lastBehavior = nil, lastIcon = nil, restoreUntil = 0 }
+                 lastBehavior = nil, lastIcon = nil, restoreUntil = 0,
+                 autoFake = false, conflicts = 0, prevUISIcon = nil }
     -- ตอนกดคลิกขวาค้างลากกล้อง Roblox จะตั้ง LockCurrentPosition เอง ห้ามสู้กับมัน (เป็นต้นเหตุกระตุก/เมาส์เลื่อนเอง)
     local function rmbDown()
         return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
@@ -2918,11 +2919,39 @@ task.spawn(function()
 
     local function force()
         if not rmbDown() then UserInputService.MouseBehavior = Enum.MouseBehavior.Default end
-        UserInputService.MouseIconEnabled = not BCX.fmFake
-        if BCX.fmFake then makeCursor() end
-        if cursorGui then cursorGui.Enabled = BCX.fmFake end
-        if not BCX.fmFake then
+        -- เช็คว่ามีสคริปต์อื่นซ่อน/ลบเมาส์ทับเราอยู่ไหม (ไอคอนปิด / ไอคอนโปร่งใส)
+        -- ถ้าโดนทับติดต่อกันหลายเฟรม = กำลังสู้กัน → สลับไปใช้เมาส์ปลอม (เป็น GUI ไม่โดนไอคอนซ่อน) อัตโนมัติ
+        if not (BCX.fmFake or FM.autoFake) then
+            local clash = (UserInputService.MouseIconEnabled == false)
             pcall(function()
+                if UserInputService.MouseIcon ~= "" then clash = true end
+                if localPlayer:GetMouse().Icon ~= "" then clash = true end
+            end)
+            if clash then
+                FM.conflicts = FM.conflicts + 1
+                if FM.conflicts >= 15 then
+                    FM.autoFake = true
+                    pcall(function()
+                        WindUI:Notify({
+                            Title = BCX.msg("Free Mouse"),
+                            Content = (BCX.Lang == "Thai") and "มีสคริปต์อื่นซ่อนเมาส์ → สลับไปใช้เมาส์ปลอมให้อัตโนมัติ"
+                                or "Another script is hiding the mouse → switched to fake cursor automatically",
+                            Duration = 3,
+                        })
+                    end)
+                end
+            else
+                FM.conflicts = 0
+            end
+        end
+        local fake = BCX.fmFake or FM.autoFake
+
+        UserInputService.MouseIconEnabled = not fake
+        if fake then makeCursor() end
+        if cursorGui then cursorGui.Enabled = fake end
+        if not fake then
+            pcall(function()
+                if UserInputService.MouseIcon ~= "" then UserInputService.MouseIcon = "" end
                 local m = localPlayer:GetMouse()
                 if m.Icon ~= "" then m.Icon = "" end
             end)
@@ -2930,7 +2959,7 @@ task.spawn(function()
         for d in pairs(FM.hidden) do
             if d.Parent then d.Visible = false end
         end
-        if cursorImg and BCX.fmFake then
+        if cursorImg and fake then
             local m = UserInputService:GetMouseLocation()
             cursorImg.Position = UDim2.fromOffset(m.X, m.Y)
         end
@@ -2958,6 +2987,8 @@ task.spawn(function()
             FM.prevBehavior = FM.lastBehavior or cur
             if FM.lastIcon ~= nil then FM.prevIcon = FM.lastIcon else FM.prevIcon = UserInputService.MouseIconEnabled end
             FM.prevFirst = isFirstPerson()
+            FM.autoFake = false; FM.conflicts = 0
+            pcall(function() FM.prevUISIcon = UserInputService.MouseIcon end)
             makeModal()
             if BCX.fmFake then makeCursor() end
             if cursorGui then cursorGui.Enabled = BCX.fmFake end
@@ -2980,6 +3011,7 @@ task.spawn(function()
             if cursorGui then cursorGui.Enabled = false end
             restoreGameCursors()
             pcall(function() localPlayer:GetMouse().Icon = FM.prevMouseIcon or "" end)
+            pcall(function() UserInputService.MouseIcon = FM.prevUISIcon or "" end)
             -- คืนค่าเมาส์เดิมของเกม (ล็อกกลางจอ) และย้ำอีกช่วงสั้นๆ กันสคริปต์เกม/Modal ทับค่าเรา
             -- คืนเฉพาะค่าที่ "เกมใช้จริง" ที่จำไว้ตอนยังไม่ได้เปิดเมาส์อิสระ
             -- (ไม่เดาว่าเป็น first person แล้วล็อกกลางจอ เพราะในล็อบบี้ กล้องมักอยู่ใกล้หัว ทำให้เมาส์ค้าง)
@@ -3076,7 +3108,7 @@ task.spawn(function()
 
     -- อัปเดตตำแหน่งเมาส์ปลอมทันทีที่ขยับ (ไม่รอเฟรมถัดไป) ลดอาการกระตุก/หน่วง
     J.track(UserInputService.InputChanged:Connect(function(input)
-        if FM.on and BCX.fmFake and cursorImg and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if FM.on and (BCX.fmFake or FM.autoFake) and cursorImg and input.UserInputType == Enum.UserInputType.MouseMovement then
             local m = UserInputService:GetMouseLocation()
             cursorImg.Position = UDim2.fromOffset(m.X, m.Y)
         end
