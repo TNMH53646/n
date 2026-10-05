@@ -1,25 +1,32 @@
--- ==================== BlackCrown-X v3.5 ====================
+-- ==================== BlackCrown-X v3.6.4 ====================
+-- Changes (จาก v3.6.3):
+--   * แก้ CPU สไปค์ 1-3 วินาทีที่เกิดจากรายชื่อผู้เล่นใน Dropdown:
+--       - BCX.refreshDD: รวมเหตุการณ์คนเข้า/ออกเป็นครั้งเดียว (debounce 3 วิ)
+--       - ไม่รีเฟรชถ้ารายชื่อไม่เปลี่ยน / ไม่รีเฟรชตอนเมนูปิด (ไปทำตอนเปิดเมนู)
+--       - รีเฟรชทีละ Dropdown เฟรมละอัน ไม่ทำ 5 อันพร้อมกันในเฟรมเดียว
+--   * Object Search ESP: debounce, สแกนแบบแบ่งเฟรม, เปลี่ยนสีไม่สแกนใหม่
+--   * Mic Indicator: แคชผลค้นหา VoiceSource (เดิมค้นแบบ recursive ทุกเฟรมทุกคน)
+-- Changes (จาก v3.6):
+--   * แก้ CPU สไปค์ตอนเปิดแค่ Crosshair:
+--       - Crosshair: หน่วงการสร้างใหม่ (debounce) ไม่สร้างใหม่ทุกครั้งที่ลาก Slider / Colorpicker
+--       - Free Mouse: เขียนค่า MouseBehavior / MouseIconEnabled / Visible เฉพาะตอนค่าไม่ตรง (ไม่เขียนทับทุกเฟรม)
+--       - Free Mouse: สแกน PlayerGui เพื่อซ่อนเมาส์เกมแบบแบ่งเฟรม (ไม่ค้างก้อนเดียวตอนเปิดเมนู)
+-- Changes (จาก v3.5):
+--   * ระบบ Fling ถูกเปลี่ยนเป็นแบบ SkidFling (ย้ายมาจากสคริปต์ MM2): พุ่งหมุนชนเป้าหมายด้วยความเร็วสูงมาก
+--     รองรับ Selected Player / All Players, กดปิดแล้วกลับที่เดิมทันที, คืนค่า FallenPartsDestroyHeight และกล้องให้เอง
+--     (ยังใช้ผ่าน BCX.feat("Fling") เหมือนเดิม จึงซิงก์ UI / คีย์ลัด / Quick Button ครบ)
+--   * แก้บั๊กเมาส์ค้างกลางจอตอนปิดเมนูในมุมมองบุคคลที่ 3 (เคยเปิดชิปล็อกมาก่อน)
 -- Changes (จาก v3.4):
 --   * Auto Free Mouse: เปิดเมนู UI = เมาส์อิสระเปิดเอง / ปิดเมนู UI = เมาส์อิสระปิดเอง
 --     (เปิด/ปิดฟีเจอร์นี้ได้ที่ Settings > Keybinds > Auto Free Mouse, กด Y สลับเองระหว่างนั้นได้ตามปกติ)
 -- Changes (จาก v3.3):
---   * Crosshair เลือกสไตล์ได้ 9 แบบ (ดรอปดาวใหม่) + ความหนา + ขอบดำ
---   * สีของ Colorpicker ทุกตัวเซฟลงไฟล์ colors.json เองทันทีที่เปลี่ยน (ไม่ต้องกด Save และไม่ผ่าน config ของ WindUI)
+--   * Crosshair เลือกสไตล์ได้ 9 แบบ + ความหนา + ขอบดำ
+--   * สีของ Colorpicker ทุกตัวเซฟลงไฟล์ colors.json เองทันทีที่เปลี่ยน
 -- Changes (จาก v3.2):
---   * คีย์ลัดทุกตัวมาอยู่หน้า Keybinds และเปลี่ยนปุ่มได้: Free Mouse (Y), Toggle UI (LeftAlt),
---     Click TP (R), Fly Up (Space), Fly Down (LeftControl) + ของเดิม (Noclip/Infinite Jump/Fly/Vehicle Fly)
---   * เมาส์ปลอมตอนกด Y ใหญ่ขึ้น (64px) และอัปเดตตำแหน่งทันทีตอนขยับเมาส์ (ลดอาการกระตุก)
---   * Click TP ใหม่: กด R ค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น (ปล่อย R = หยุด)
---     และมี Quick Button / สวิตช์ "Click TP" (โหมดวาร์ปคลิก: แตะตรงไหนของจอก็วาร์ปไปตรงนั้น ไม่ต้องใช้ไอเทม)
+--   * คีย์ลัดทุกตัวมาอยู่หน้า Keybinds และเปลี่ยนปุ่มได้
+--   * Click TP: กดปุ่มค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น + Quick Button / สวิตช์ "Click TP"
 -- Changes (จาก v3.1):
---   * ระบบสถานะกลาง BCX.F / BCX.feat(): ทุกฟังก์ชัน (Noclip, Infinite Jump, Fly, Vehicle Fly,
---     Anti-Fling, Fling, Safe Mode, Tween Track) มี "สถานะจริง" ที่เดียว
---     ไม่ว่าจะกดจาก UI / ปุ่มคีย์ลัด / Quick Button ทั้ง 3 ช่องทางจะซิงก์กันเสมอ
---   * เปิดจากช่องทางไหนก็ตาม สวิตช์ UI + สีปุ่ม Quick Button จะเปลี่ยนตามทันที (เขียว = เปิดอยู่)
---   * กดสลับจากสถานะจริง ไม่ใช่สถานะที่ปุ่มจำไว้เอง จึงไม่เพี้ยน/ไม่ซ้อนทับกัน
---   * Fly กับ Vehicle Fly ยังเปิดได้ทีละโหมด (เปิดอันหนึ่ง อีกอันดับ + สวิตช์/ปุ่มดับตาม)
---   * Tween Track / Safe Mode จาก Quick Button ทำงานจริงแล้ว (เดิมแค่ตั้งตัวแปร)
--- (ของเดิมจาก v3.1: Fly กดครั้งเดียวทำงาน, UI Layout Mode, รันซ้ำล้างของเก่า, ปุ่ม Save ถาวร)
+--   * ระบบสถานะกลาง BCX.F / BCX.feat(): UI / คีย์ลัด / Quick Button ซิงก์กันเสมอ
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BCX_Instance and genv.BCX_Instance.destroy then
@@ -114,12 +121,17 @@ local BCX = {
     F = {},    -- ตารางฟังก์ชันกลาง (สถานะจริง)
 }
 
+-- จำค่า FallenPartsDestroyHeight เดิมของเกม (ใช้คืนค่าหลัง Fling) ถ้าเป็น NaN จากรอบก่อนให้ใช้ค่ามาตรฐาน
+BCX.FPDH = workspace.FallenPartsDestroyHeight
+if BCX.FPDH ~= BCX.FPDH then BCX.FPDH = -500 end
+
 -- ==================== KEYBIND REGISTRY (ปรับปุ่มได้จากหน้า Keybinds) ====================
 -- ค่าเริ่มต้นของแต่ละปุ่ม; ค่าจริงอ่านจากสวิตช์ Keybind ใน UI (BCX.KB) ทุกครั้งที่กด
 BCX.KB = {}
 BCX.keys = {
     ["Free Mouse"] = "Y", ["Click TP Key"] = "R", ["Toggle UI"] = "LeftAlt",
     ["Fly Up"] = "Space", ["Fly Down"] = "LeftControl",
+    ["Emergency Reset Key"] = "Delete", ["Force Mouse Lock Key"] = "K",
 }
 function BCX.keyName(name)
     local el = BCX.KB[name]
@@ -423,15 +435,36 @@ function BCX.setAF(state)
     end
 end
 
--- ==================== FLING (ฟังก์ชันเดียว) ====================
+-- ==================== FLING (SkidFling) ====================
+-- วิธีทำงาน: วาร์ปตัวเองไปทับเป้าหมายแล้วหมุน/สลับตำแหน่งขึ้น-ลงด้วยความเร็วสูงมากทุกเฟรม
+-- (ติด BodyVelocity กันตกเอง + ตั้ง FallenPartsDestroyHeight = NaN กันตายตอนตกแมพ)
+-- จบแต่ละเป้าหมาย = วาร์ปกลับจุดเดิม, จบทั้งหมด/กดปิด = flingStop() คืนค่าทุกอย่าง
 BCX.flingMode = "Selected Player"
 BCX.flingSession = 0
 
+function BCX.flingCleanup()
+    pcall(function() workspace.FallenPartsDestroyHeight = BCX.FPDH end)
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = getHRP()
+    if hrp then
+        local bv = hrp:FindFirstChild("BCX_FlingBV")
+        if bv then bv:Destroy() end
+    end
+    if hum then
+        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end)
+        local cam = workspace.CurrentCamera
+        if cam then pcall(function() cam.CameraSubject = hum end) end
+    end
+end
+
 function BCX.flingStop()
+    local wasOn = BCX.flinging
     BCX.flinging = false
     BCX.flingAllOn = false
     BCX.flingSession = BCX.flingSession + 1
     if BCX.flingConn then BCX.flingConn:Disconnect(); BCX.flingConn = nil end
+    BCX.flingCleanup()
     local hrp = getHRP()
     if hrp then
         hrp.AssemblyLinearVelocity = Vector3.zero
@@ -441,37 +474,96 @@ function BCX.flingStop()
     BCX.flingOrigCF = nil
 end
 
--- พุ่งชนผู้เล่น 1 คน; onDone(flung) เรียกเมื่อจบ (ไม่วาร์ปกลับ ให้ flingStop ทำตอนจบทั้งหมด)
-function BCX.flingHit(target, onDone)
-    local hrp = getHRP()
-    local tHRP0 = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp or not tHRP0 or target == localPlayer then return false end
-    if BCX.flingConn then BCX.flingConn:Disconnect(); BCX.flingConn = nil end
+-- Fling ผู้เล่น 1 คน (บล็อกจนจบ) คืน true ถ้าได้ลงมือ
+function BCX.skidFling(target, sid)
+    local function active() return BCX.flinging and sid == BCX.flingSession end
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = hum and hum.RootPart
+    local tChar = target and target.Character
+    if not (char and hum and root and tChar) then return false end
 
-    local startPos, t0, n, finished = tHRP0.Position, os.clock(), 0, false
-    local function finish(flung)
-        if finished then return end
-        finished = true
-        if BCX.flingConn then BCX.flingConn:Disconnect(); BCX.flingConn = nil end
-        local h = getHRP()
-        if h then h.AssemblyLinearVelocity = Vector3.zero; h.AssemblyAngularVelocity = Vector3.zero end
-        if onDone then onDone(flung) end
+    local tHum = tChar:FindFirstChildOfClass("Humanoid")
+    local tRoot = tHum and tHum.RootPart
+    local tHead = tChar:FindFirstChild("Head")
+    local acc = tChar:FindFirstChildOfClass("Accessory")
+    local handle = acc and acc:FindFirstChild("Handle")
+    if tHum and tHum.Sit then return false end -- เป้าหมายนั่งอยู่ ข้าม
+    if not tChar:FindFirstChildWhichIsA("BasePart") then return false end
+
+    local home = BCX.flingOrigCF
+    local cam = workspace.CurrentCamera
+    if cam then
+        if tHead then cam.CameraSubject = tHead
+        elseif handle then cam.CameraSubject = handle
+        elseif tHum and tRoot then cam.CameraSubject = tHum end
     end
-    local function step()
-        if finished then return end
-        local myHRP = getHRP()
-        local tHRP = target.Parent and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-        if not BCX.flinging or not myHRP or not tHRP then finish(false); return end
-        local flung = tHRP.AssemblyLinearVelocity.Magnitude > 150 or (tHRP.Position - startPos).Magnitude > 80
-        if flung or (os.clock() - t0) > 3 then finish(flung); return end
-        n = n + 1
-        local off = (n % 2 == 0) and Vector3.new(0, 1.2, 0) or Vector3.new(0, -1.2, 0)
-        myHRP.CFrame = CFrame.new(tHRP.Position + tHRP.AssemblyLinearVelocity * 0.12 + off) * CFrame.Angles(math.rad(90), math.rad(n * 40), 0)
-        myHRP.AssemblyAngularVelocity = Vector3.new(0, 2e5, 0)
-        myHRP.AssemblyLinearVelocity = Vector3.new(2e4, 2e4, 2e4)
+
+    local function fPos(base, pos, ang)
+        if not root.Parent or not base.Parent then return end
+        root.CFrame = CFrame.new(base.Position) * pos * ang
+        root.AssemblyLinearVelocity = Vector3.new(9e7, 9e8, 9e7)
+        root.AssemblyAngularVelocity = Vector3.new(9e8, 9e8, 9e8)
     end
-    BCX.flingConn = RunService.Heartbeat:Connect(step)
-    step() -- เริ่มทันที ไม่รอเฟรมถัดไป
+
+    local function hitPart(base)
+        local timeout, t0, angle = 2, os.clock(), 0
+        repeat
+            if root.Parent and base.Parent and tHum then
+                if base.AssemblyLinearVelocity.Magnitude < 50 then
+                    angle = angle + 100
+                    local mv = tHum.MoveDirection * base.AssemblyLinearVelocity.Magnitude / 1.25
+                    fPos(base, CFrame.new(0, 1.5, 0) + mv, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
+                    fPos(base, CFrame.new(0, -1.5, 0) + mv, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
+                    fPos(base, CFrame.new(0, 1.5, 0) + tHum.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
+                    fPos(base, CFrame.new(0, -1.5, 0) + tHum.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
+                else
+                    fPos(base, CFrame.new(0, 1.5, tHum.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+                    fPos(base, CFrame.new(0, -1.5, -tHum.WalkSpeed), CFrame.Angles(0, 0, 0)); task.wait()
+                    fPos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+                    fPos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
+                end
+            else
+                task.wait()
+            end
+        until os.clock() - t0 > timeout or not active() or not base.Parent
+    end
+
+    workspace.FallenPartsDestroyHeight = 0 / 0
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "BCX_FlingBV"
+    bv.Velocity = Vector3.zero
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.Parent = root
+    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false) end)
+
+    if tRoot then hitPart(tRoot)
+    elseif tHead then hitPart(tHead)
+    elseif handle then hitPart(handle) end
+
+    pcall(function() bv:Destroy() end)
+    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end)
+    if cam then pcall(function() cam.CameraSubject = hum end) end
+
+    if not active() then return true end -- ถูกสั่งหยุด: flingStop จัดการคืนค่าเอง
+
+    -- วาร์ปกลับที่เดิม (กันตกแมพ/ติดค้าง: ลองไม่เกิน 2 วิ)
+    if home then
+        local t0 = os.clock()
+        repeat
+            if not root.Parent then break end
+            root.CFrame = home * CFrame.new(0, 0.5, 0)
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+            for _, v in ipairs(char:GetChildren()) do
+                if v:IsA("BasePart") then
+                    v.AssemblyLinearVelocity = Vector3.zero
+                    v.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+            task.wait()
+        until (root.Position - home.Position).Magnitude < 25 or os.clock() - t0 > 2 or not active()
+    end
+    pcall(function() workspace.FallenPartsDestroyHeight = BCX.FPDH end)
     return true
 end
 
@@ -493,6 +585,12 @@ function BCX.flingRun(mode, onDone)
     end
     if #list == 0 then return false end
 
+    -- Fling ใช้ฟิสิกส์ของตัวละครเต็มๆ ปิดโหมดบินก่อนกันตีกัน
+    if BCX.flyOff then
+        pcall(BCX.flyOff, "Normal")
+        pcall(BCX.flyOff, "Vehicle")
+    end
+
     BCX.flingOrigCF = hrp.CFrame
     BCX.flinging = true
     BCX.flingAllOn = (mode == "All")
@@ -500,10 +598,8 @@ function BCX.flingRun(mode, onDone)
     task.spawn(function()
         for _, plr in ipairs(list) do
             if sid ~= BCX.flingSession then return end
-            local done = false
-            if BCX.flingHit(plr, function() done = true end) then
-                while not done and sid == BCX.flingSession do task.wait() end
-            end
+            local ok, err = pcall(BCX.skidFling, plr, sid)
+            if not ok then warn("[BCX] fling: " .. tostring(err)) end
         end
         if sid == BCX.flingSession then
             BCX.flingStop()
@@ -1110,8 +1206,8 @@ E("Fling Mode", "โหมด Fling",
   "Selected Player = fling the chosen player. All Players = fling everyone one by one.",
   "Selected Player = ดีดคนที่เลือก, All Players = ดีดทุกคนทีละคน")
 E("Start Fling", "เริ่ม Fling",
-  "Turn ON to start. Turn OFF to stop right away and return to your spot.",
-  "เปิดเพื่อเริ่ม ปิดเพื่อหยุดทันทีและกลับที่เดิม")
+  "Turn ON to start. Turn OFF to stop right away and return to your spot. (Your screen follows the target while flinging.)",
+  "เปิดเพื่อเริ่ม ปิดเพื่อหยุดทันทีและกลับที่เดิม (ระหว่าง Fling กล้องจะตามเป้าหมาย)")
 
 -- Misc: safety
 E("Safe Mode (< 50% HP TP)", "โหมดปลอดภัย (เลือด < 50% วาร์ปหนี)",
@@ -1692,6 +1788,7 @@ local function createESP(plr)
 
     local activeColor = checkIsFriend(plr) and friendColor or espColor
     local highlight -- สร้างใหม่อัตโนมัติเมื่อตัวละครถูกสตรีมกลับมา
+    local micCache, micNext = nil, 0 -- [v3.6.4] แคชผลค้นหา VoiceSource (ไม่ค้น recursive ทุกเฟรม)
 
     local boxOutline, boxInline, healthBarOutline, healthBarBG, healthBarFill, healthText, nameText, micText, tracer
     if hasDrawingAPI then
@@ -1715,7 +1812,14 @@ local function createESP(plr)
         end
     end
 
+    local idleHidden = false
     local conn = rs.RenderStepped:Connect(function()
+        if not (espNameEnabled or espBoxEnabled or espTracerEnabled or espHighlightEnabled
+            or espHealthBarEnabled or espHealthTextEnabled or espMicEnabled) then
+            if not idleHidden then idleHidden = true; hideAll() end
+            return
+        end
+        idleHidden = false
         local charModel, hrpTarget, humanoidTarget = resolveCharacter(plr)
         if not charModel or humanoidTarget.Health <= 0 then
             hideAll()
@@ -1775,8 +1879,14 @@ local function createESP(plr)
                         for _, d in ipairs({healthBarOutline,healthBarBG,healthBarFill,healthText}) do if d then d.Visible = false end end
                     end
                     if espMicEnabled and micText then
-                        local voiceInst = charModel:FindFirstChild("VoiceSource", true) or charModel:FindFirstChildWhichIsA("AudioEmitter", true)
-                        if voiceInst then
+                        -- [v3.6.4] ค้นหา VoiceSource แค่วินาทีละครั้ง แล้วใช้ค่าที่แคชไว้
+                        local nowT = os.clock()
+                        if nowT >= micNext or (micCache and not micCache:IsDescendantOf(charModel)) then
+                            micNext = nowT + 1
+                            micCache = charModel:FindFirstChild("VoiceSource", true) or charModel:FindFirstChildWhichIsA("AudioEmitter", true)
+                        end
+                        local voiceInst = micCache
+                        if voiceInst and voiceInst.Parent then
                             micText.Text = "🎤"
                             micText.Color = (voiceInst:IsA("Sound") and voiceInst.PlaybackLoudness > 5) and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,255,255)
                             micText.Position = Vector2.new(minX+boxWidth+4, minY); micText.Visible = true
@@ -1825,6 +1935,7 @@ local exactMatchEnabled = false
 local partialMatchEnabled = false
 local objectEspColor = Color3.fromRGB(255, 255, 0)
 local searchedObjects = {}
+local objSearchTick = 0 -- [v3.6.4] ตัวนับคำสั่งค้นหา (debounce + ยกเลิกสแกนเก่า)
 
 local function clearObjectESP()
     for obj, data in pairs(searchedObjects) do
@@ -1860,10 +1971,19 @@ local function applyESPToObject(obj)
 end
 
 local function updateObjectESP()
+    objSearchTick = objSearchTick + 1
+    local myTick = objSearchTick
     clearObjectESP()
     if searchTargetText == "" or (not exactMatchEnabled and not partialMatchEnabled) then return end
     local targetLower = string.lower(searchTargetText)
+    local i = 0
     for _, obj in ipairs(workspace:GetDescendants()) do
+        -- [v3.6.4] แบ่งเฟรมทุก 1500 ตัว กัน workspace ใหญ่ๆ (หลายหมื่น instance) ค้างก้อนเดียว
+        i = i + 1
+        if i % 1500 == 0 then
+            task.wait()
+            if myTick ~= objSearchTick or J.dead then return end -- มีคำสั่งใหม่เข้ามา ยกเลิกรอบนี้
+        end
         if obj:IsA("Model") or obj:IsA("BasePart") then
             if localPlayer.Character and obj:IsDescendantOf(localPlayer.Character) then continue end
             local isMatch = false
@@ -1872,6 +1992,15 @@ local function updateObjectESP()
             if isMatch then applyESPToObject(obj) end
         end
     end
+end
+
+-- [v3.6.4] หน่วงการค้นหา: รวมคำสั่งที่ยิงถี่ๆ (พิมพ์ชื่อ / สลับสวิตช์) เป็นรอบเดียวหลังหยุด 0.4 วิ
+function BCX.queueObjectESP()
+    objSearchTick = objSearchTick + 1
+    local t = objSearchTick
+    task.delay(0.4, function()
+        if t == objSearchTick and not J.dead then task.spawn(updateObjectESP) end
+    end)
 end
 
 J.track(rs.RenderStepped:Connect(function()
@@ -1979,7 +2108,18 @@ end))
 BCX.xhair = { on = false, size = 12, thick = 2, gap = 4, color = Color3.new(1, 1, 1), style = "Plus", outline = true }
 BCX.XHAIR_STYLES = { "Plus", "Plus (No Gap)", "T-Shape", "Dot", "Circle", "Circle + Dot", "Square", "Diamond", "X Cross" }
 
+-- [v3.6.3] หน่วงการสร้างใหม่: callback จาก Slider / Colorpicker ยิงถี่มาก
+-- รวมเป็นการสร้างใหม่ครั้งเดียวหลังหยุดขยับ ~0.08 วิ (แทนที่จะลบ-สร้าง Frame ทุกครั้งที่ลาก)
+BCX.xhairTick = 0
 function BCX.xhairUpdate()
+    BCX.xhairTick = BCX.xhairTick + 1
+    local t = BCX.xhairTick
+    task.delay(0.08, function()
+        if t == BCX.xhairTick and not J.dead then BCX.xhairBuild() end
+    end)
+end
+
+function BCX.xhairBuild()
     local x = BCX.xhair
     if not (BCX.xhairGui and BCX.xhairGui.Parent) then
         local g = Instance.new("ScreenGui")
@@ -2233,7 +2373,7 @@ function BCX.setSafe(state)
 end
 
 -- ==================== CLICK TP (ไม่ต้องใช้ไอเทม) ====================
--- • คีย์ลัด (ค่าเริ่มต้น R): กดทีเดียว = วาร์ปไปจุดที่เมาส์ชี้, กดค้าง = วาร์ปตามเมาส์ต่อเนื่อง
+-- • คีย์ลัด (ค่าเริ่มต้น R): กดค้างไว้แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น
 -- • โหมดวาร์ปคลิก (Quick Button / สวิตช์ "Click TP"): เปิดแล้วแตะ/คลิกตรงไหนของจอก็วาร์ปไปตรงนั้น
 BCX.ctpOn = false
 BCX.ctpHold = false
@@ -2319,6 +2459,7 @@ BCX.F = {
             end
             local ok = BCX.flingRun(mode, function()
                 BCX.sync("Fling")
+                BCX.flyRefreshQB()
                 notify("Fling", "Fling finished", 2)
             end)
             if not ok then notify("Error", "Character not found!") end
@@ -2408,11 +2549,20 @@ ESPSettingsSection:Colorpicker({ Title="Enemy / Default Color", Default=Color3.f
 ESPSettingsSection:Colorpicker({ Title="Friend Color",          Default=Color3.fromRGB(0,255,128), Callback=function(c) friendColor=c end })
 
 local ObjectSearchSection = ESPTab:Section({ Title = "Object Search ESP", Icon = "search" })
-ObjectSearchSection:Input({ Title="Search Name", Placeholder="เช่น Door, Chest, Coin...", Callback=function(v) searchTargetText=v; updateObjectESP() end })
+ObjectSearchSection:Input({ Title="Search Name", Placeholder="เช่น Door, Chest, Coin...", Callback=function(v) searchTargetText=v; BCX.queueObjectESP() end })
 local exactToggle, partialToggle
-exactToggle   = ObjectSearchSection:Toggle({ Title="Exact Match",   Default=false, Callback=function(s) exactMatchEnabled=s; if s and partialMatchEnabled then partialMatchEnabled=false; if partialToggle and partialToggle.SetValue then partialToggle:SetValue(false) end end; updateObjectESP() end })
-partialToggle = ObjectSearchSection:Toggle({ Title="Partial Match", Default=false, Callback=function(s) partialMatchEnabled=s; if s and exactMatchEnabled then exactMatchEnabled=false; if exactToggle and exactToggle.SetValue then exactToggle:SetValue(false) end end; updateObjectESP() end })
-ObjectSearchSection:Colorpicker({ Title="Search ESP Color", Default=Color3.fromRGB(255,255,0), Callback=function(c) objectEspColor=c; updateObjectESP() end })
+exactToggle   = ObjectSearchSection:Toggle({ Title="Exact Match",   Default=false, Callback=function(s) exactMatchEnabled=s; if s and partialMatchEnabled then partialMatchEnabled=false; if partialToggle and partialToggle.SetValue then partialToggle:SetValue(false) end end; BCX.queueObjectESP() end })
+partialToggle = ObjectSearchSection:Toggle({ Title="Partial Match", Default=false, Callback=function(s) partialMatchEnabled=s; if s and exactMatchEnabled then exactMatchEnabled=false; if exactToggle and exactToggle.SetValue then exactToggle:SetValue(false) end end; BCX.queueObjectESP() end })
+-- [v3.6.4] เปลี่ยนสีแล้วอัปเดตของที่หาเจอแล้วเลย ไม่สแกน workspace ใหม่ทุกครั้งที่ลาก Colorpicker
+ObjectSearchSection:Colorpicker({ Title="Search ESP Color", Default=Color3.fromRGB(255,255,0), Callback=function(c)
+    objectEspColor = c
+    for _, d in pairs(searchedObjects) do
+        if d.highlight then d.highlight.FillColor = c end
+        if d.boxInline then d.boxInline.Color = c end
+        if d.nameText then d.nameText.Color = c end
+        if d.tracer then d.tracer.Color = c end
+    end
+end })
 
 -- ==================== UI: TELEPORT TAB ====================
 local TPSection = TPTab:Section({ Title = "Player Teleport & Tween", Icon = "navigation" })
@@ -2543,7 +2693,7 @@ BCX.UI["Fly"] = MovementSection:Toggle({ Title="Fly", Desc="บินอย่�
     BCX.feat("Fly", s, "ui")
 end })
 
--- Vehicle Fly (ยกรถ/วัตถุที่นั่งไปด้วย) — เปิดแล้ว Fly ปกติจะถูกปิดเสมอ
+-- Vehicle Fly (ยกรถ/วัตถุที่นั่งไปด้วย) — เปิดแล้ว Fly ปกติจะปิดเสมอ
 BCX.UI["Vehicle Fly"] = MovementSection:Toggle({ Title="Vehicle Fly", Desc="บินพร้อมยานพาหนะ", Value=false, Flag="VehFlyToggle", Callback=function(s)
     BCX.feat("Vehicle Fly", s, "ui")
 end })
@@ -2675,18 +2825,57 @@ do
     BCX.flingToggle = BCX.UI["Fling"]
 end
 
--- รายชื่อผู้เล่นอัปเดตเองทุกครั้งที่มีคนเข้า/ออก
+-- ==================== รายชื่อผู้เล่นใน Dropdown (อัปเดตเองเมื่อมีคนเข้า/ออก) ====================
+-- [v3.6.4] ตัวการสไปค์ 1-3 วินาทีในล็อก: Dropdown:Refresh() ของ WindUI ลบ+สร้างทุกแถวใหม่
+-- (Frame + TextLabel + UIListLayout ต่อแถว) และเดิมถูกยิงทุกครั้งที่มีคนเข้า/ออก ×5 Dropdown
+-- แก้โดย: debounce 3 วิ / ข้ามถ้ารายชื่อไม่เปลี่ยน / ไม่ทำตอนเมนูปิด (รอไปทำตอนเปิด) / ทำทีละอัน เฟรมละอัน
 BCX.PlayerDD = { tpPlayerDropdown, tweenPlayerDropdown, dragDropdown, emotePlayerDropdown, BCX.flingDD }
-function BCX.refreshDD()
-    if BCX.dead then return end
-    local list = getPlayerList()
-    for _, dd in ipairs(BCX.PlayerDD) do
-        if dd then pcall(function() dd:Refresh(list) end) end
-    end
+BCX.ddLast, BCX.ddTick, BCX.ddDirty, BCX.ddBusy = "", 0, false, false
+
+local function uiOpenNow()
+    local ok, v = pcall(function()
+        if Window.Closed ~= nil then return not Window.Closed end
+        return Window.UIElements.Main.Visible
+    end)
+    if ok and v ~= nil then return v end
+    return true
 end
-J.track(players.PlayerAdded:Connect(function() task.delay(0.5, BCX.refreshDD) end))
-J.track(players.PlayerRemoving:Connect(function() task.delay(0.5, BCX.refreshDD) end))
-task.delay(1, BCX.refreshDD)
+
+function BCX.refreshDD(force)
+    if BCX.dead or BCX.ddBusy then return end
+    -- เมนูปิดอยู่ = ยังไม่ต้องสร้างอะไร แค่จดไว้ว่าต้องรีเฟรชตอนเปิดเมนู
+    if not force and not uiOpenNow() then BCX.ddDirty = true; return end
+    local list = getPlayerList()
+    local sig = table.concat(list, "|")
+    if sig == BCX.ddLast then BCX.ddDirty = false; return end -- รายชื่อไม่เปลี่ยน ไม่ต้องทำ
+    BCX.ddLast, BCX.ddDirty, BCX.ddBusy = sig, false, true
+    task.spawn(function()
+        for _, dd in ipairs(BCX.PlayerDD) do
+            if BCX.dead then break end
+            if dd then pcall(function() dd:Refresh(list) end) end
+            task.wait() -- เฟรมละ 1 Dropdown ไม่ให้ก้อนเดียวหนัก
+        end
+        BCX.ddBusy = false
+    end)
+end
+
+-- รวมเหตุการณ์เข้า/ออกที่ติดกันเป็นการรีเฟรชครั้งเดียว หลังเงียบไป 3 วิ
+local function queueDD()
+    BCX.ddTick = BCX.ddTick + 1
+    local t = BCX.ddTick
+    task.delay(3, function() if t == BCX.ddTick then BCX.refreshDD() end end)
+end
+J.track(players.PlayerAdded:Connect(queueDD))
+J.track(players.PlayerRemoving:Connect(queueDD))
+task.delay(1, function() BCX.refreshDD(true) end)
+
+-- ตอนเมนูเปิด ถ้ามีรายชื่อค้างรออัปเดต ค่อยทำทีเดียว (เช็กทุก 0.5 วิ ไม่ใช่ทุกเฟรม)
+task.spawn(function()
+    while not BCX.dead do
+        task.wait(0.5)
+        if BCX.ddDirty and uiOpenNow() then BCX.refreshDD() end
+    end
+end)
 
 -- Safety อยู่ท้ายสุดของ Misc
 local SafetySection = MiscTab:Section({ Title = "Safety", Icon = "shield" })
@@ -2782,9 +2971,15 @@ end) })
 
 KeybindSection:Dropdown({ Title="Free Mouse Cursor", Values={"Real (no lag)","Fake"}, Value="Real (no lag)",
     Callback=function(v) BCX.fmFake = (v == "Fake") end })
-KeybindSection:Toggle({ Title="Auto Free Mouse", Value=true, Callback=function(s)
+BCX.UI["Auto Free Mouse"] = KeybindSection:Toggle({ Title="Auto Free Mouse", Value=true, Callback=function(s)
     BCX.autoFM = s
 end })
+BCX.KB["Emergency Reset Key"]  = KeybindSection:Keybind({ Title="Emergency Reset Key",  Value="Delete", Callback=BCX.kbRec("Emergency Reset Key") })
+BCX.KB["Force Mouse Lock Key"] = KeybindSection:Keybind({ Title="Force Mouse Lock Key", Value="K",      Callback=BCX.kbRec("Force Mouse Lock Key") })
+
+local EmergencySection = SettingsTab:Section({ Title = "Emergency", Icon = "triangle-alert" })
+EmergencySection:Button({ Title="Emergency Reset", Desc="ปิดทุกฟังก์ชัน + คืนเมาส์/กล้อง (คีย์ลัด: Delete)", Callback=function() if BCX.panic then BCX.panic() end end })
+EmergencySection:Button({ Title="Unload Script", Desc="ลบสคริปต์ทิ้งทั้งหมด (กด Delete 2 ครั้งติดกันก็ได้)", Callback=function() if BCX.unload then BCX.unload() end end })
 
 -- ปุ่ม Save ถาวร: เป็นหนึ่งใน "ปุ่มลัดบนจอ (ลากได้)" ลบไม่ได้
 function BCX.saveLabelText() return (BCX.Lang == "Thai") and "บันทึกเดี๋ยวนี้" or "Save Now" end
@@ -2817,7 +3012,7 @@ task.delay(1.5, function()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.5 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.6.4 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
@@ -2893,10 +3088,17 @@ task.spawn(function()
     end
 
     -- ซ่อนเมาส์/crosshair ของเกม (GUI ที่ชื่อมี cursor / crosshair / mouseicon)
+    -- [v3.6.3] สแกนแบบแบ่งเฟรม (พัก task.wait ทุก 300 ตัว) กัน PlayerGui ใหญ่ๆ ค้างก้อนเดียวตอนเปิดเมนู
     local function hideGameCursors()
         local pg = p:FindFirstChild("PlayerGui")
         if not pg then return end
+        local i = 0
         for _, d in ipairs(pg:GetDescendants()) do
+            i = i + 1
+            if i % 300 == 0 then
+                task.wait()
+                if not FM.on or BCX.dead then return end
+            end
             if d:IsA("GuiObject") and d.Visible then
                 local gui = d:FindFirstAncestorOfClass("ScreenGui")
                 if not (gui and gui.Name:sub(1, 4) == "BCX_") then
@@ -2918,10 +3120,15 @@ task.spawn(function()
     end
 
     local function force()
-        if not rmbDown() then UserInputService.MouseBehavior = Enum.MouseBehavior.Default end
+        -- [v3.6.3] เขียนค่าเฉพาะตอนไม่ตรง ไม่เขียนทับทุกเฟรม
+        if not rmbDown() and UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
         -- เช็คว่ามีสคริปต์อื่นซ่อน/ลบเมาส์ทับเราอยู่ไหม (ไอคอนปิด / ไอคอนโปร่งใส)
         -- ถ้าโดนทับติดต่อกันหลายเฟรม = กำลังสู้กัน → สลับไปใช้เมาส์ปลอม (เป็น GUI ไม่โดนไอคอนซ่อน) อัตโนมัติ
-        if not (BCX.fmFake or FM.autoFake) then
+        FM.frame = (FM.frame or 0) + 1
+        local heavy = (FM.frame % 6 == 0) -- งานหนักทำทุก 6 เฟรม กัน GC สะดุด
+        if heavy and not (BCX.fmFake or FM.autoFake) then
             local clash = (UserInputService.MouseIconEnabled == false)
             pcall(function()
                 if UserInputService.MouseIcon ~= "" then clash = true end
@@ -2929,7 +3136,7 @@ task.spawn(function()
             end)
             if clash then
                 FM.conflicts = FM.conflicts + 1
-                if FM.conflicts >= 15 then
+                if FM.conflicts >= 3 then
                     FM.autoFake = true
                     pcall(function()
                         WindUI:Notify({
@@ -2946,10 +3153,12 @@ task.spawn(function()
         end
         local fake = BCX.fmFake or FM.autoFake
 
-        UserInputService.MouseIconEnabled = not fake
+        if UserInputService.MouseIconEnabled == fake then -- ต้องการค่า = not fake
+            UserInputService.MouseIconEnabled = not fake
+        end
         if fake then makeCursor() end
-        if cursorGui then cursorGui.Enabled = fake end
-        if not fake then
+        if cursorGui and cursorGui.Enabled ~= fake then cursorGui.Enabled = fake end
+        if not fake and heavy then
             pcall(function()
                 if UserInputService.MouseIcon ~= "" then UserInputService.MouseIcon = "" end
                 local m = localPlayer:GetMouse()
@@ -2957,7 +3166,7 @@ task.spawn(function()
             end)
         end
         for d in pairs(FM.hidden) do
-            if d.Parent then d.Visible = false end
+            if d.Parent and d.Visible then d.Visible = false end
         end
         if cursorImg and fake then
             local m = UserInputService:GetMouseLocation()
@@ -2998,10 +3207,13 @@ task.spawn(function()
                 if not BCX.fmFake then m.Icon = "" end -- เกมบางเกมตั้งไอคอนโปร่งใส → คืนเป็นเมาส์ปกติ
             end)
             if modalBtn then modalBtn.Modal = true end
-            hideGameCursors()
+            task.spawn(hideGameCursors) -- [v3.6.3] สแกนแบบแบ่งเฟรม ไม่บล็อกตอนเปิดเมนู
             RunService:BindToRenderStep("BCX_FreeMouse", Enum.RenderPriority.Last.Value, force)
             stepConn = RunService.Stepped:Connect(function()
-                if not rmbDown() then UserInputService.MouseBehavior = Enum.MouseBehavior.Default end
+                -- [v3.6.3] เขียนเฉพาะตอนค่าไม่ตรง
+                if not rmbDown() and UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                end
             end)
             force()
         else
@@ -3012,14 +3224,22 @@ task.spawn(function()
             restoreGameCursors()
             pcall(function() localPlayer:GetMouse().Icon = FM.prevMouseIcon or "" end)
             pcall(function() UserInputService.MouseIcon = FM.prevUISIcon or "" end)
-            -- คืนค่าเมาส์เดิมของเกม (ล็อกกลางจอ) และย้ำอีกช่วงสั้นๆ กันสคริปต์เกม/Modal ทับค่าเรา
+            -- คืนค่าเมาส์เดิมของเกม และย้ำอีกช่วงสั้นๆ กันสคริปต์เกม/Modal ทับค่าเรา
             -- คืนเฉพาะค่าที่ "เกมใช้จริง" ที่จำไว้ตอนยังไม่ได้เปิดเมาส์อิสระ
-            -- (ไม่เดาว่าเป็น first person แล้วล็อกกลางจอ เพราะในล็อบบี้ กล้องมักอยู่ใกล้หัว ทำให้เมาส์ค้าง)
             local wantBehavior = FM.prevBehavior or Enum.MouseBehavior.Default
             if wantBehavior == Enum.MouseBehavior.LockCurrentPosition then
                 wantBehavior = Enum.MouseBehavior.Default
             end
+            -- [แก้บั๊กเมาส์ค้างกลางจอ] LockCenter คืนเฉพาะตอนเป็นบุคคลที่ 1 เท่านั้น
+            -- มุมมองบุคคลที่ 3 ให้ใช้ Default (ถ้าชิปล็อกเปิดอยู่จริง กล้องของเกมจะล็อกเองหลัง resyncCamera)
+            -- กันค่าเก่าที่จำไว้ตอนยังเปิดชิปล็อกแล้วมาปิดระหว่างที่เมนูเปิดอยู่
+            local hum0 = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if wantBehavior == Enum.MouseBehavior.LockCenter and not isFirstPerson()
+                and hum0 and hum0.AutoRotate == true then
+                wantBehavior = Enum.MouseBehavior.Default
+            end
             FM.restoreUntil = os.clock() + 1.2
+            FM.unstickUntil = os.clock() + 3
             local wantIcon = FM.prevIcon
             if wantIcon == nil then wantIcon = true end
             UserInputService.MouseBehavior = wantBehavior
@@ -3046,6 +3266,89 @@ task.spawn(function()
     end
     BCX.setFree = setFree
 
+    -- ==================== EMERGENCY RESET (ปุ่มฉุกเฉิน) ====================
+    -- กด 1 ครั้ง = ปิดทุกฟังก์ชัน + คืนเมาส์/กล้อง/ไอคอนทั้งหมด (สคริปต์ยังอยู่)
+    -- กด 2 ครั้งติดกันภายใน 1 วิ = ลบสคริปต์ทิ้งทั้งหมด (Unload)
+    BCX.forceLock = false -- ล็อกเมาส์กลางจอเอง (ใช้ตอนเกมเป็นบุคคลที่ 1 แล้วเมาส์หลุด)
+
+    local function hardRestoreMouse()
+        pcall(function() RunService:UnbindFromRenderStep("BCX_FreeMouse") end)
+        if stepConn then stepConn:Disconnect(); stepConn = nil end
+        if modalBtn then modalBtn.Modal = false end
+        if cursorGui then cursorGui.Enabled = false end
+        pcall(restoreGameCursors)
+        FM.on = false
+        pcall(function() localPlayer:GetMouse().Icon = "" end)
+        pcall(function() UserInputService.MouseIcon = "" end)
+        local want = Enum.MouseBehavior.Default
+        if BCX.forceLock or isFirstPerson() then want = Enum.MouseBehavior.LockCenter end
+        FM.restoreUntil = os.clock() + 1.5
+        UserInputService.MouseIconEnabled = true
+        UserInputService.MouseBehavior = want
+        task.spawn(function()
+            resyncCamera()
+            local t0 = os.clock()
+            while not FM.on and not BCX.dead and os.clock() - t0 < 1 do
+                if not rmbDown() then UserInputService.MouseBehavior = want end
+                UserInputService.MouseIconEnabled = true
+                RunService.RenderStepped:Wait()
+            end
+        end)
+    end
+
+    function BCX.panic()
+        BCX.autoFM = false
+        pcall(function() if BCX.UI["Auto Free Mouse"] and BCX.UI["Auto Free Mouse"].Set then BCX.UI["Auto Free Mouse"]:Set(false) end end)
+        for name, fn in pairs(BCX.F) do
+            if fn.get() then pcall(BCX.feat, name, false) end
+        end
+        pcall(BCX.flingStop)
+        pcall(stopMirroring)
+        pcall(stopCustomEmotes)
+        if speedConnection then
+            speedConnection:Disconnect(); speedConnection = nil
+            local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = defaultSpeed end
+        end
+        hardRestoreMouse()
+        pcall(function()
+            WindUI:Notify({ Title = "BlackCrown-X",
+                Content = (BCX.Lang == "Thai") and "รีเซ็ตฉุกเฉินแล้ว: ปิดทุกฟังก์ชัน + คืนเมาส์ (กดซ้ำเร็วๆ = ลบสคริปต์)"
+                    or "Emergency reset done: all features off + mouse restored (press again quickly = unload)",
+                Duration = 4 })
+        end)
+    end
+
+    function BCX.unload()
+        pcall(BCX.panic)
+        task.delay(0.3, function() J.destroy() end)
+    end
+
+    local lastPanic = 0
+    J.track(UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if BCX.keyIs("Emergency Reset Key", input) then
+            local now = os.clock()
+            if now - lastPanic < 1 then lastPanic = 0; BCX.unload(); return end
+            lastPanic = now
+            BCX.panic()
+        elseif BCX.keyIs("Force Mouse Lock Key", input) and not UserInputService:GetFocusedTextBox() then
+            BCX.forceLock = not BCX.forceLock
+            if not BCX.forceLock and not FM.on then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end
+            pcall(function()
+                WindUI:Notify({ Title = "BlackCrown-X",
+                    Content = BCX.forceLock and "Force Mouse Lock: ON" or "Force Mouse Lock: OFF", Duration = 2 })
+            end)
+        end
+    end))
+    J.track(RunService.RenderStepped:Connect(function()
+        if BCX.forceLock and not FM.on and not BCX.dead and not rmbDown() then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        end
+    end))
+
     -- ==================== AUTO FREE MOUSE (ตาม UI เปิด/ปิด) ====================
     -- เช็คว่าหน้าต่าง UI เปิดอยู่ไหม (รองรับหลายเวอร์ชันของ WindUI)
     local function uiIsOpen()
@@ -3068,8 +3371,7 @@ task.spawn(function()
     end
 
     -- จำสถานะเมาส์ "ของเกมจริงๆ" ไว้ตลอดตอนที่ยังไม่ได้เปิดเมาส์อิสระ
-    -- (ไม่จำช่วงที่เรากำลังคืนค่า/สลับเร็วๆ จึงไม่จำค่าที่ผิดมาใช้ซ้ำ)
-    -- + กันค้าง: ถ้าเมาส์ติด LockCurrentPosition นานเกิน 0.4 วิ ตอนเมาส์อิสระปิด ให้ปลดล็อกเอง
+    -- + กันค้าง: ถ้าเมาส์ติดล็อกผิดปกตินานเกิน 0.4 วิ ตอนเมาส์อิสระปิด ให้ปลดล็อกเอง
     do
         local b0 = UserInputService.MouseBehavior
         if b0 == Enum.MouseBehavior.LockCurrentPosition then b0 = Enum.MouseBehavior.Default end
@@ -3079,13 +3381,23 @@ task.spawn(function()
         J.track(RunService.Heartbeat:Connect(function(dt)
             if BCX.dead or FM.on or os.clock() < FM.restoreUntil then stuckT = 0; return end
             local b = UserInputService.MouseBehavior
-            if b == Enum.MouseBehavior.LockCurrentPosition then
+            -- [แก้บั๊กเมาส์ค้างกลางจอ] นอกจาก LockCurrentPosition แล้ว
+            -- LockCenter ที่ไม่ใช่บุคคลที่ 1 และตัวละครยังหมุนตามกล้องปกติ (AutoRotate = true)
+            -- = ไม่ใช่ชิปล็อกจริง (ชิปล็อกของ Roblox จะตั้ง AutoRotate = false) ถือว่าค้าง
+            local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+            local inWin = os.clock() < (FM.unstickUntil or 0)
+            local stuckLock =
+                (b == Enum.MouseBehavior.LockCurrentPosition)
+                or (inWin and b == Enum.MouseBehavior.LockCenter and not isFirstPerson()
+                    and hum and hum.AutoRotate == true)
+            if stuckLock then
                 -- กำลังกดคลิกขวาลากกล้องอยู่ = ปกติ ไม่ใช่อาการค้าง
                 if rmbDown() then stuckT = 0; return end
                 stuckT = stuckT + dt
                 if BCX.autoFM and stuckT > 0.4 then
                     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
                     stuckT = 0
+                    if b == Enum.MouseBehavior.LockCenter then FM.unstickUntil = 0 end -- ปลดครั้งเดียว ไม่สู้กับเกมซ้ำๆ
                 end
             else
                 stuckT = 0
@@ -3131,6 +3443,7 @@ J.onClean(function()
     aimbotEnabled = false; fovEnabled = false
     isTweeningRelative = false; safeModeEnabled = false; autoSaveEnabled = false
     exactMatchEnabled = false; partialMatchEnabled = false
+    objSearchTick = objSearchTick + 1 -- ยกเลิกสแกนวัตถุที่ค้างอยู่
     isCopyingPlayerEmote = false; isPlayingCustomEmote = false
     if autoSaveThread then pcall(task.cancel, autoSaveThread); autoSaveThread = nil end
 
@@ -3143,6 +3456,7 @@ J.onClean(function()
     if infiniteJumpEnabled then pcall(setInfiniteJump, false) end
     pcall(BCX.setAF, false)
     pcall(BCX.flingStop)
+    pcall(BCX.flingCleanup)
     pcall(stopMirroring)
     pcall(stopCustomEmotes)
     if speedConnection then
@@ -3165,7 +3479,7 @@ J.onClean(function()
     pcall(function()
         for _, d in ipairs(workspace:GetDescendants()) do
             if d.Name == "ESP_Highlight" or d.Name == "ObjESP_Highlight"
-            or d.Name == "TweenPlatform" or d.Name == "TweenBodyVelocity" then
+            or d.Name == "TweenPlatform" or d.Name == "TweenBodyVelocity" or d.Name == "BCX_FlingBV" then
                 pcall(function() d:Destroy() end)
             end
         end
