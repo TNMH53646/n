@@ -1,4 +1,7 @@
--- ==================== BlackCrown-X v3.4 ====================
+-- ==================== BlackCrown-X v3.5 ====================
+-- Changes (จาก v3.4):
+--   * Auto Free Mouse: เปิดเมนู UI = เมาส์อิสระเปิดเอง / ปิดเมนู UI = เมาส์อิสระปิดเอง
+--     (เปิด/ปิดฟีเจอร์นี้ได้ที่ Settings > Keybinds > Auto Free Mouse, กด Y สลับเองระหว่างนั้นได้ตามปกติ)
 -- Changes (จาก v3.3):
 --   * Crosshair เลือกสไตล์ได้ 9 แบบ (ดรอปดาวใหม่) + ความหนา + ขอบดำ
 --   * สีของ Colorpicker ทุกตัวเซฟลงไฟล์ colors.json เองทันทีที่เปลี่ยน (ไม่ต้องกด Save และไม่ผ่าน config ของ WindUI)
@@ -178,6 +181,7 @@ pcall(function()
     end
 end)
 BCX.fmFake = false -- Free Mouse: false = ใช้เมาส์จริง (ไม่หน่วง), true = เมาส์ปลอม
+BCX.autoFM = true  -- Free Mouse เปิด/ปิดตาม UI อัตโนมัติ (เปิดเมนู = เปิด, ปิดเมนู = ปิด)
 BCX.colorSaveTick = 0
 function BCX.saveColors()
     BCX.colorSaveTick = BCX.colorSaveTick + 1
@@ -875,6 +879,9 @@ E("Free Mouse", "เมาส์อิสระ",
 E("Free Mouse Cursor", "เมาส์ตอนใช้เมาส์อิสระ",
   "Real = your normal system mouse (no lag, recommended). Fake = a drawn cursor, use only if you can't see the real one in a game.",
   "Real = เมาส์จริงของระบบ (ไม่หน่วง แนะนำ) / Fake = เมาส์ปลอมที่วาดเอง ใช้เมื่อบางเกมมองไม่เห็นเมาส์จริง")
+E("Auto Free Mouse", "เมาส์อิสระอัตโนมัติ",
+  "Free mouse turns ON when the menu opens and OFF when it closes.",
+  "เปิดเมนูแล้วเมาส์อิสระเปิดเอง ปิดเมนูแล้วเมาส์อิสระปิดเอง")
 E("Click TP Key", "ปุ่มวาร์ปคลิก",
   "Hold this key, then click anywhere to teleport to that spot. Release the key to stop.",
   "กดปุ่มนี้ค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น ปล่อยปุ่มก็หยุด")
@@ -2775,6 +2782,9 @@ end) })
 
 KeybindSection:Dropdown({ Title="Free Mouse Cursor", Values={"Real (no lag)","Fake"}, Value="Real (no lag)",
     Callback=function(v) BCX.fmFake = (v == "Fake") end })
+KeybindSection:Toggle({ Title="Auto Free Mouse", Value=true, Callback=function(s)
+    BCX.autoFM = s
+end })
 
 -- ปุ่ม Save ถาวร: เป็นหนึ่งใน "ปุ่มลัดบนจอ (ลากได้)" ลบไม่ได้
 function BCX.saveLabelText() return (BCX.Lang == "Thai") and "บันทึกเดี๋ยวนี้" or "Save Now" end
@@ -2807,13 +2817,18 @@ task.delay(1.5, function()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.4.2 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.5 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
 -- เปิด: ซ่อนเมาส์/crosshair ของเกม + วาดเมาส์ของเราแทน | ปิด: คืนของเดิม
 task.spawn(function()
-    local FM = { on = false, hidden = {}, prevBehavior = nil, prevIcon = nil, prevFirst = false, prevMouseIcon = nil }
+    local FM = { on = false, hidden = {}, prevBehavior = nil, prevIcon = nil, prevFirst = false, prevMouseIcon = nil,
+                 lastBehavior = nil, lastIcon = nil, restoreUntil = 0 }
+    -- ตอนกดคลิกขวาค้างลากกล้อง Roblox จะตั้ง LockCurrentPosition เอง ห้ามสู้กับมัน (เป็นต้นเหตุกระตุก/เมาส์เลื่อนเอง)
+    local function rmbDown()
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+    end
     local cursorGui, cursorImg, modalGui, modalBtn, stepConn
 
     -- ตอนนี้เป็นมุมมองบุคคลที่ 1 ไหม (กล้องอยู่ติดหัว หรือเกมบังคับ first person)
@@ -2902,7 +2917,7 @@ task.spawn(function()
     end
 
     local function force()
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        if not rmbDown() then UserInputService.MouseBehavior = Enum.MouseBehavior.Default end
         UserInputService.MouseIconEnabled = not BCX.fmFake
         if BCX.fmFake then makeCursor() end
         if cursorGui then cursorGui.Enabled = BCX.fmFake end
@@ -2925,11 +2940,11 @@ task.spawn(function()
         local cam = workspace.CurrentCamera
         if not cam then return end
         local original = cam.CameraType
+        -- เกมที่คุมกล้องเอง (Scriptable) ห้ามแตะ: ถ้าเปลี่ยนเป็น Custom กล้อง/ล็อกเมาส์ของเกมจะพัง
+        if original == Enum.CameraType.Scriptable then return end
         pcall(function() cam.CameraType = Enum.CameraType.Scriptable end)
         task.wait()
-        pcall(function()
-            cam.CameraType = (original == Enum.CameraType.Scriptable) and Enum.CameraType.Custom or original
-        end)
+        pcall(function() cam.CameraType = original end)
     end
 
     -- silent = true: ไม่แจ้งเตือน (ใช้ตอน reload/ทำลาย UI)
@@ -2938,8 +2953,10 @@ task.spawn(function()
         FM.on = state
         if state then
             -- จำค่าเมาส์เดิมของเกมไว้ก่อนแตะอะไร (เช่น LockCenter ตอนเป็นมุมมองบุคคลที่ 1/ชิฟต์ล็อก)
-            FM.prevBehavior = UserInputService.MouseBehavior
-            FM.prevIcon = UserInputService.MouseIconEnabled
+            local cur = UserInputService.MouseBehavior
+            if cur == Enum.MouseBehavior.LockCurrentPosition then cur = Enum.MouseBehavior.Default end
+            FM.prevBehavior = FM.lastBehavior or cur
+            if FM.lastIcon ~= nil then FM.prevIcon = FM.lastIcon else FM.prevIcon = UserInputService.MouseIconEnabled end
             FM.prevFirst = isFirstPerson()
             makeModal()
             if BCX.fmFake then makeCursor() end
@@ -2953,7 +2970,7 @@ task.spawn(function()
             hideGameCursors()
             RunService:BindToRenderStep("BCX_FreeMouse", Enum.RenderPriority.Last.Value, force)
             stepConn = RunService.Stepped:Connect(function()
-                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                if not rmbDown() then UserInputService.MouseBehavior = Enum.MouseBehavior.Default end
             end)
             force()
         else
@@ -2964,14 +2981,13 @@ task.spawn(function()
             restoreGameCursors()
             pcall(function() localPlayer:GetMouse().Icon = FM.prevMouseIcon or "" end)
             -- คืนค่าเมาส์เดิมของเกม (ล็อกกลางจอ) และย้ำอีกช่วงสั้นๆ กันสคริปต์เกม/Modal ทับค่าเรา
-            local wantBehavior
-            if isFirstPerson() then
-                wantBehavior = Enum.MouseBehavior.LockCenter      -- ตอนนี้เป็น first person → ล็อกกลางจอ
-            elseif FM.prevFirst then
-                wantBehavior = Enum.MouseBehavior.Default         -- เปิดตอน first person แต่ตอนนี้เป็น third person → ไม่ล็อก
-            else
-                wantBehavior = FM.prevBehavior or Enum.MouseBehavior.Default  -- ไม่เปลี่ยนมุมมอง → คืนค่าเดิม
+            -- คืนเฉพาะค่าที่ "เกมใช้จริง" ที่จำไว้ตอนยังไม่ได้เปิดเมาส์อิสระ
+            -- (ไม่เดาว่าเป็น first person แล้วล็อกกลางจอ เพราะในล็อบบี้ กล้องมักอยู่ใกล้หัว ทำให้เมาส์ค้าง)
+            local wantBehavior = FM.prevBehavior or Enum.MouseBehavior.Default
+            if wantBehavior == Enum.MouseBehavior.LockCurrentPosition then
+                wantBehavior = Enum.MouseBehavior.Default
             end
+            FM.restoreUntil = os.clock() + 1.2
             local wantIcon = FM.prevIcon
             if wantIcon == nil then wantIcon = true end
             UserInputService.MouseBehavior = wantBehavior
@@ -2979,8 +2995,8 @@ task.spawn(function()
             task.spawn(function()
                 resyncCamera()
                 local t0 = os.clock()
-                while not FM.on and not BCX.dead and os.clock() - t0 < 0.8 do
-                    UserInputService.MouseBehavior = wantBehavior
+                while not FM.on and not BCX.dead and os.clock() - t0 < 1.2 do
+                    if not rmbDown() then UserInputService.MouseBehavior = wantBehavior end
                     UserInputService.MouseIconEnabled = wantIcon
                     RunService.RenderStepped:Wait()
                 end
@@ -2997,6 +3013,66 @@ task.spawn(function()
         end
     end
     BCX.setFree = setFree
+
+    -- ==================== AUTO FREE MOUSE (ตาม UI เปิด/ปิด) ====================
+    -- เช็คว่าหน้าต่าง UI เปิดอยู่ไหม (รองรับหลายเวอร์ชันของ WindUI)
+    local function uiIsOpen()
+        local ok, v = pcall(function()
+            if Window.Closed ~= nil then return not Window.Closed end
+            return Window.UIElements.Main.Visible
+        end)
+        if ok and v ~= nil then return v end
+        return true
+    end
+
+    -- ทำงานเฉพาะตอนสถานะ UI "เปลี่ยน" (เปิด/ปิด) ไม่ได้บังคับตลอดเวลา
+    -- ดังนั้นกด Y สลับเองระหว่างที่ UI เปิดอยู่ได้ตามปกติ
+    local lastOpen = nil
+    local function applyAuto(open)
+        if BCX.dead or not BCX.autoFM then return end
+        if open == lastOpen then return end
+        lastOpen = open
+        setFree(open, true) -- true = ไม่เด้งแจ้งเตือนทุกครั้งที่เปิด/ปิดเมนู
+    end
+
+    -- จำสถานะเมาส์ "ของเกมจริงๆ" ไว้ตลอดตอนที่ยังไม่ได้เปิดเมาส์อิสระ
+    -- (ไม่จำช่วงที่เรากำลังคืนค่า/สลับเร็วๆ จึงไม่จำค่าที่ผิดมาใช้ซ้ำ)
+    -- + กันค้าง: ถ้าเมาส์ติด LockCurrentPosition นานเกิน 0.4 วิ ตอนเมาส์อิสระปิด ให้ปลดล็อกเอง
+    do
+        local b0 = UserInputService.MouseBehavior
+        if b0 == Enum.MouseBehavior.LockCurrentPosition then b0 = Enum.MouseBehavior.Default end
+        FM.lastBehavior = b0
+        FM.lastIcon = UserInputService.MouseIconEnabled
+        local stuckT = 0
+        J.track(RunService.Heartbeat:Connect(function(dt)
+            if BCX.dead or FM.on or os.clock() < FM.restoreUntil then stuckT = 0; return end
+            local b = UserInputService.MouseBehavior
+            if b == Enum.MouseBehavior.LockCurrentPosition then
+                -- กำลังกดคลิกขวาลากกล้องอยู่ = ปกติ ไม่ใช่อาการค้าง
+                if rmbDown() then stuckT = 0; return end
+                stuckT = stuckT + dt
+                if BCX.autoFM and stuckT > 0.4 then
+                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                    stuckT = 0
+                end
+            else
+                stuckT = 0
+                FM.lastBehavior = b
+                FM.lastIcon = UserInputService.MouseIconEnabled
+            end
+        end))
+    end
+
+    -- ตัวหลัก: event ของ WindUI (ถ้าเวอร์ชันมี)
+    pcall(function() Window:OnOpen(function() applyAuto(true) end) end)
+    pcall(function() Window:OnClose(function() applyAuto(false) end) end)
+
+    -- ตัวสำรอง: เช็คสถานะทุกเฟรม ทำงานเฉพาะตอนสถานะเปลี่ยน
+    J.track(RunService.Heartbeat:Connect(function()
+        if BCX.dead then return end
+        if not BCX.autoFM then lastOpen = nil; return end
+        applyAuto(uiIsOpen())
+    end))
 
     -- อัปเดตตำแหน่งเมาส์ปลอมทันทีที่ขยับ (ไม่รอเฟรมถัดไป) ลดอาการกระตุก/หน่วง
     J.track(UserInputService.InputChanged:Connect(function(input)
