@@ -177,6 +177,7 @@ pcall(function()
         if type(d) == "table" then BCX.colors = d end
     end
 end)
+BCX.fmFake = false -- Free Mouse: false = ใช้เมาส์จริง (ไม่หน่วง), true = เมาส์ปลอม
 BCX.colorSaveTick = 0
 function BCX.saveColors()
     BCX.colorSaveTick = BCX.colorSaveTick + 1
@@ -871,6 +872,9 @@ E("Quick Buttons (Draggable)", "ปุ่มลัดบนจอ (ลากไ�
 E("Keybinds", "ปุ่มคีย์ลัด")
 E("Free Mouse", "เมาส์อิสระ",
   "Key that turns the free mouse on/off.", "ปุ่มเปิด/ปิดเมาส์อิสระ")
+E("Free Mouse Cursor", "เมาส์ตอนใช้เมาส์อิสระ",
+  "Real = your normal system mouse (no lag, recommended). Fake = a drawn cursor, use only if you can't see the real one in a game.",
+  "Real = เมาส์จริงของระบบ (ไม่หน่วง แนะนำ) / Fake = เมาส์ปลอมที่วาดเอง ใช้เมื่อบางเกมมองไม่เห็นเมาส์จริง")
 E("Click TP Key", "ปุ่มวาร์ปคลิก",
   "Hold this key, then click anywhere to teleport to that spot. Release the key to stop.",
   "กดปุ่มนี้ค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น ปล่อยปุ่มก็หยุด")
@@ -2769,6 +2773,9 @@ BCX.KB["Toggle UI"]    = KeybindSection:Keybind({ Title="Toggle UI",    Value="L
     if kc then Window:SetToggleKey(kc) end
 end) })
 
+KeybindSection:Dropdown({ Title="Free Mouse Cursor", Values={"Real (no lag)","Fake"}, Value="Real (no lag)",
+    Callback=function(v) BCX.fmFake = (v == "Fake") end })
+
 -- ปุ่ม Save ถาวร: เป็นหนึ่งใน "ปุ่มลัดบนจอ (ลากได้)" ลบไม่ได้
 function BCX.saveLabelText() return (BCX.Lang == "Thai") and "บันทึกเดี๋ยวนี้" or "Save Now" end
 createQuickButton("Save", 80, 200, 65, false, function() BCX.saveNow() end,
@@ -2800,14 +2807,23 @@ task.delay(1.5, function()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.4 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.4.2 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
 -- เปิด: ซ่อนเมาส์/crosshair ของเกม + วาดเมาส์ของเราแทน | ปิด: คืนของเดิม
 task.spawn(function()
-    local FM = { on = false, hidden = {} }
+    local FM = { on = false, hidden = {}, prevBehavior = nil, prevIcon = nil, prevFirst = false, prevMouseIcon = nil }
     local cursorGui, cursorImg, modalGui, modalBtn, stepConn
+
+    -- ตอนนี้เป็นมุมมองบุคคลที่ 1 ไหม (กล้องอยู่ติดหัว หรือเกมบังคับ first person)
+    local function isFirstPerson()
+        local cam = workspace.CurrentCamera
+        local head = localPlayer.Character and localPlayer.Character:FindFirstChild("Head")
+        if cam and head and (cam.CFrame.Position - head.Position).Magnitude < 1.5 then return true end
+        local ok, mode = pcall(function() return localPlayer.CameraMode end)
+        return ok and mode == Enum.CameraMode.LockFirstPerson
+    end
 
     local function makeCursor()
         if cursorGui and cursorGui.Parent then return end
@@ -2887,11 +2903,19 @@ task.spawn(function()
 
     local function force()
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        UserInputService.MouseIconEnabled = false
+        UserInputService.MouseIconEnabled = not BCX.fmFake
+        if BCX.fmFake then makeCursor() end
+        if cursorGui then cursorGui.Enabled = BCX.fmFake end
+        if not BCX.fmFake then
+            pcall(function()
+                local m = localPlayer:GetMouse()
+                if m.Icon ~= "" then m.Icon = "" end
+            end)
+        end
         for d in pairs(FM.hidden) do
             if d.Parent then d.Visible = false end
         end
-        if cursorImg then
+        if cursorImg and BCX.fmFake then
             local m = UserInputService:GetMouseLocation()
             cursorImg.Position = UDim2.fromOffset(m.X, m.Y)
         end
@@ -2913,8 +2937,18 @@ task.spawn(function()
         if state == FM.on then return end
         FM.on = state
         if state then
-            makeCursor(); makeModal()
-            if cursorGui then cursorGui.Enabled = true end
+            -- จำค่าเมาส์เดิมของเกมไว้ก่อนแตะอะไร (เช่น LockCenter ตอนเป็นมุมมองบุคคลที่ 1/ชิฟต์ล็อก)
+            FM.prevBehavior = UserInputService.MouseBehavior
+            FM.prevIcon = UserInputService.MouseIconEnabled
+            FM.prevFirst = isFirstPerson()
+            makeModal()
+            if BCX.fmFake then makeCursor() end
+            if cursorGui then cursorGui.Enabled = BCX.fmFake end
+            pcall(function()
+                local m = localPlayer:GetMouse()
+                FM.prevMouseIcon = m.Icon
+                if not BCX.fmFake then m.Icon = "" end -- เกมบางเกมตั้งไอคอนโปร่งใส → คืนเป็นเมาส์ปกติ
+            end)
             if modalBtn then modalBtn.Modal = true end
             hideGameCursors()
             RunService:BindToRenderStep("BCX_FreeMouse", Enum.RenderPriority.Last.Value, force)
@@ -2928,8 +2962,29 @@ task.spawn(function()
             if modalBtn then modalBtn.Modal = false end
             if cursorGui then cursorGui.Enabled = false end
             restoreGameCursors()
-            UserInputService.MouseIconEnabled = true
-            resyncCamera()
+            pcall(function() localPlayer:GetMouse().Icon = FM.prevMouseIcon or "" end)
+            -- คืนค่าเมาส์เดิมของเกม (ล็อกกลางจอ) และย้ำอีกช่วงสั้นๆ กันสคริปต์เกม/Modal ทับค่าเรา
+            local wantBehavior
+            if isFirstPerson() then
+                wantBehavior = Enum.MouseBehavior.LockCenter      -- ตอนนี้เป็น first person → ล็อกกลางจอ
+            elseif FM.prevFirst then
+                wantBehavior = Enum.MouseBehavior.Default         -- เปิดตอน first person แต่ตอนนี้เป็น third person → ไม่ล็อก
+            else
+                wantBehavior = FM.prevBehavior or Enum.MouseBehavior.Default  -- ไม่เปลี่ยนมุมมอง → คืนค่าเดิม
+            end
+            local wantIcon = FM.prevIcon
+            if wantIcon == nil then wantIcon = true end
+            UserInputService.MouseBehavior = wantBehavior
+            UserInputService.MouseIconEnabled = wantIcon
+            task.spawn(function()
+                resyncCamera()
+                local t0 = os.clock()
+                while not FM.on and not BCX.dead and os.clock() - t0 < 0.8 do
+                    UserInputService.MouseBehavior = wantBehavior
+                    UserInputService.MouseIconEnabled = wantIcon
+                    RunService.RenderStepped:Wait()
+                end
+            end)
         end
         if not silent then
             pcall(function()
@@ -2945,7 +3000,7 @@ task.spawn(function()
 
     -- อัปเดตตำแหน่งเมาส์ปลอมทันทีที่ขยับ (ไม่รอเฟรมถัดไป) ลดอาการกระตุก/หน่วง
     J.track(UserInputService.InputChanged:Connect(function(input)
-        if FM.on and cursorImg and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if FM.on and BCX.fmFake and cursorImg and input.UserInputType == Enum.UserInputType.MouseMovement then
             local m = UserInputService:GetMouseLocation()
             cursorImg.Position = UDim2.fromOffset(m.X, m.Y)
         end
