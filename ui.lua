@@ -1,4 +1,7 @@
--- ==================== BlackCrown-X v3.3 ====================
+-- ==================== BlackCrown-X v3.4 ====================
+-- Changes (จาก v3.3):
+--   * Crosshair เลือกสไตล์ได้ 9 แบบ (ดรอปดาวใหม่) + ความหนา + ขอบดำ
+--   * สีของ Colorpicker ทุกตัวเซฟลงไฟล์ colors.json เองทันทีที่เปลี่ยน (ไม่ต้องกด Save และไม่ผ่าน config ของ WindUI)
 -- Changes (จาก v3.2):
 --   * คีย์ลัดทุกตัวมาอยู่หน้า Keybinds และเปลี่ยนปุ่มได้: Free Mouse (Y), Toggle UI (LeftAlt),
 --     Click TP (R), Fly Up (Space), Fly Down (LeftControl) + ของเดิม (Noclip/Infinite Jump/Fly/Vehicle Fly)
@@ -165,6 +168,29 @@ pcall(function()
         BCX.ShowDesc = (readfile("BlackCrown-X/showdesc.txt") == "1")
     end
 end)
+
+-- เก็บสีของ Colorpicker ทุกตัวไว้ในไฟล์เอง (เซฟทันทีที่เปลี่ยน)
+BCX.colors = {}
+pcall(function()
+    if isfile and isfile("BlackCrown-X/colors.json") then
+        local d = game:GetService("HttpService"):JSONDecode(readfile("BlackCrown-X/colors.json"))
+        if type(d) == "table" then BCX.colors = d end
+    end
+end)
+BCX.colorSaveTick = 0
+function BCX.saveColors()
+    BCX.colorSaveTick = BCX.colorSaveTick + 1
+    local tick = BCX.colorSaveTick
+    task.delay(0.4, function() -- รอให้หยุดลากสีก่อนค่อยเขียนไฟล์
+        if tick ~= BCX.colorSaveTick then return end
+        pcall(function()
+            if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+            if writefile then
+                writefile("BlackCrown-X/colors.json", game:GetService("HttpService"):JSONEncode(BCX.colors))
+            end
+        end)
+    end)
+end
 
 -- เซฟค่า -> ทำลายทุกอย่าง -> รันใหม่ (ใช้ตอนสลับ UI Layout Mode)
 function BCX.reload()
@@ -887,6 +913,14 @@ E("Crosshair Size", "ขนาดเป้าเล็ง",
   "Size of the crosshair.", "ขนาดของเป้าเล็ง")
 E("Crosshair Color", "สีเป้าเล็ง",
   "Color of the crosshair.", "สีของเป้าเล็ง")
+E("Crosshair Style", "สไตล์เป้าเล็ง",
+  "Pick the crosshair shape: plus, dot, circle, square, X and more.",
+  "เลือกรูปแบบเป้าเล็ง: กากบาท, จุด, วงกลม, สี่เหลี่ยม, X และอื่นๆ")
+E("Crosshair Thickness", "ความหนาเป้าเล็ง",
+  "Thickness of the crosshair lines.", "ความหนาของเส้นเป้าเล็ง")
+E("Crosshair Outline", "ขอบดำเป้าเล็ง",
+  "Adds a black outline so the crosshair is visible on any background.",
+  "เพิ่มขอบดำ ให้เห็นเป้าชัดทุกพื้นหลัง")
 E("Enable FOV", "เปิดวงกลม FOV",
   "Shows a circle on screen. Aimbot only targets players inside it.",
   "แสดงวงกลมบนจอ และเล็งเฉพาะผู้เล่นที่อยู่ในวงกลม")
@@ -1243,7 +1277,39 @@ function BCX.wrapSection(sec)
                     end
                     if key and BCX.NOSAVE[key] then flag = nil; o.Flag = nil end
 
+                    -- Colorpicker: ใช้ระบบเซฟสีของเราเอง (ไม่ผ่าน config ของ WindUI)
+                    local colorKey, userCb
+                    if m == "Colorpicker" and key then
+                        colorKey = key
+                        flag = nil; o.Flag = nil
+                        userCb = o.Callback
+                        local saved = BCX.colors[colorKey]
+                        if type(saved) == "table" and #saved == 3 then
+                            o.Default = Color3.fromRGB(saved[1], saved[2], saved[3])
+                        end
+                        o.Callback = function(col, ...)
+                            if typeof(col) == "Color3" then
+                                BCX.colors[colorKey] = {
+                                    math.floor(col.R * 255 + 0.5),
+                                    math.floor(col.G * 255 + 0.5),
+                                    math.floor(col.B * 255 + 0.5),
+                                }
+                                BCX.saveColors()
+                            end
+                            if userCb then return userCb(col, ...) end
+                        end
+                    end
+
                     local el = orig(self, o)
+
+                    -- ใช้สีที่เซฟไว้กับตัวแปรของสคริปต์ทันที (ไม่ต้องรอ UI เรียก callback)
+                    if colorKey and userCb then
+                        local saved = BCX.colors[colorKey]
+                        if type(saved) == "table" and #saved == 3 then
+                            pcall(userCb, Color3.fromRGB(saved[1], saved[2], saved[3]))
+                        end
+                    end
+
                     if flag and el then pcall(function() BCX.cfg:Register(flag, el) end) end
                     table.insert(BCX.Registry, { el = el, key = key, kind = m })
                     return el
@@ -1899,7 +1965,9 @@ J.track(rs.RenderStepped:Connect(function()
 end))
 
 -- ==================== CROSSHAIR (กลางจอ) ====================
-BCX.xhair = { on = false, size = 12, thick = 2, gap = 4, color = Color3.new(1, 1, 1) }
+BCX.xhair = { on = false, size = 12, thick = 2, gap = 4, color = Color3.new(1, 1, 1), style = "Plus", outline = true }
+BCX.XHAIR_STYLES = { "Plus", "Plus (No Gap)", "T-Shape", "Dot", "Circle", "Circle + Dot", "Square", "Diamond", "X Cross" }
+
 function BCX.xhairUpdate()
     local x = BCX.xhair
     if not (BCX.xhairGui and BCX.xhairGui.Parent) then
@@ -1908,21 +1976,73 @@ function BCX.xhairUpdate()
         pcall(function() g.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
         if not g.Parent then g.Parent = p:WaitForChild("PlayerGui") end
         J.obj(g)
-        BCX.xhairGui, BCX.xhairParts = g, {}
-        for i = 1, 4 do
+        local h = Instance.new("Frame")
+        h.BackgroundTransparency = 1
+        h.AnchorPoint = Vector2.new(0.5, 0.5)
+        h.Position = UDim2.fromScale(0.5, 0.5)
+        h.Size = UDim2.fromOffset(0, 0)
+        h.Parent = g
+        BCX.xhairGui, BCX.xhairHolder = g, h
+    end
+    local holder = BCX.xhairHolder
+    holder:ClearAllChildren()
+
+    local s, t, gp = x.size, x.thick, x.gap
+
+    local function mk(w, h, ox, oy, opt)
+        opt = opt or {}
+        local function frame()
             local f = Instance.new("Frame")
             f.BorderSizePixel = 0
             f.AnchorPoint = Vector2.new(0.5, 0.5)
-            f.Parent = g
-            BCX.xhairParts[i] = f
+            f.Size = UDim2.fromOffset(w, h)
+            f.Position = UDim2.fromOffset(ox, oy)
+            f.Rotation = opt.rot or 0
+            if opt.round then Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0) end
+            f.Parent = holder
+            return f
+        end
+        if opt.hollow then
+            if x.outline then -- วงดำรอบนอก
+                local o = frame(); o.BackgroundTransparency = 1
+                local so = Instance.new("UIStroke"); so.Color = Color3.new(0, 0, 0); so.Thickness = t + 2; so.Parent = o
+            end
+            local f = frame(); f.BackgroundTransparency = 1
+            local st = Instance.new("UIStroke"); st.Color = x.color; st.Thickness = t; st.Parent = f
+        else
+            local f = frame(); f.BackgroundColor3 = x.color
+            if x.outline then
+                local st = Instance.new("UIStroke"); st.Color = Color3.new(0, 0, 0); st.Thickness = 1; st.Parent = f
+            end
         end
     end
-    local P, s, t, gp = BCX.xhairParts, x.size, x.thick, x.gap
-    P[1].Size = UDim2.fromOffset(t, s); P[1].Position = UDim2.new(0.5, 0, 0.5, -(gp + s / 2))
-    P[2].Size = UDim2.fromOffset(t, s); P[2].Position = UDim2.new(0.5, 0, 0.5,  (gp + s / 2))
-    P[3].Size = UDim2.fromOffset(s, t); P[3].Position = UDim2.new(0.5, -(gp + s / 2), 0.5, 0)
-    P[4].Size = UDim2.fromOffset(s, t); P[4].Position = UDim2.new(0.5,  (gp + s / 2), 0.5, 0)
-    for _, f in ipairs(P) do f.BackgroundColor3 = x.color end
+
+    local style = x.style
+    if style == "Plus" then
+        mk(t, s, 0, -(gp + s / 2)); mk(t, s, 0, (gp + s / 2))
+        mk(s, t, -(gp + s / 2), 0); mk(s, t, (gp + s / 2), 0)
+    elseif style == "Plus (No Gap)" then
+        mk(t, s * 2, 0, 0); mk(s * 2, t, 0, 0)
+    elseif style == "T-Shape" then
+        mk(t, s, 0, (gp + s / 2))
+        mk(s, t, -(gp + s / 2), 0); mk(s, t, (gp + s / 2), 0)
+    elseif style == "Dot" then
+        local d = math.max(t * 2, 4); mk(d, d, 0, 0, { round = true })
+    elseif style == "Circle" then
+        local r = (s + gp) * 2; mk(r, r, 0, 0, { hollow = true, round = true })
+    elseif style == "Circle + Dot" then
+        local r = (s + gp) * 2; mk(r, r, 0, 0, { hollow = true, round = true })
+        local d = math.max(t * 2, 4); mk(d, d, 0, 0, { round = true })
+    elseif style == "Square" then
+        local side = s + gp * 2; mk(side, side, 0, 0, { hollow = true })
+    elseif style == "Diamond" then
+        local side = (s + gp * 2) * 0.75; mk(side, side, 0, 0, { hollow = true, rot = 45 })
+    elseif style == "X Cross" then
+        local d = (gp + s / 2) * 0.7071
+        mk(t, s, d, -d, { rot = 45 });  mk(t, s, -d, d, { rot = 45 })
+        mk(t, s, -d, -d, { rot = -45 }); mk(t, s, d, d, { rot = -45 })
+    end
+
     BCX.xhairGui.Enabled = x.on
 end
 
@@ -2253,7 +2373,10 @@ AimbotSection:Toggle({ Title="Wallcheck",        Desc="ไม่ล็อกเ�
 AimbotSection:Dropdown({ Title="Target Part",    Values={"Head","HumanoidRootPart"}, Value="Head", Callback=function(v) aimbotTargetPart=v end })
 AimbotSection:Input({ Title="Smoothness",        Value="1", Placeholder="1=ล็อกทันที, 5=นุ่ม...", Callback=function(v) local n=tonumber(v); if n and n>0 then aimbotSmoothness=n end end })
 AimbotSection:Toggle({ Title="Crosshair", Default=false, Callback=function(s) BCX.xhair.on=s; BCX.xhairUpdate() end })
+AimbotSection:Dropdown({ Title="Crosshair Style", Values=BCX.XHAIR_STYLES, Value="Plus", Callback=function(v) BCX.xhair.style=v; BCX.xhairUpdate() end })
 AimbotSection:Slider({ Title="Crosshair Size", Step=1, Value={Min=4,Max=40,Default=12}, Callback=function(v) BCX.xhair.size=tonumber(v) or 12; BCX.xhairUpdate() end })
+AimbotSection:Slider({ Title="Crosshair Thickness", Step=1, Value={Min=1,Max=8,Default=2}, Callback=function(v) BCX.xhair.thick=tonumber(v) or 2; BCX.xhairUpdate() end })
+AimbotSection:Toggle({ Title="Crosshair Outline", Default=true, Callback=function(s) BCX.xhair.outline=s; BCX.xhairUpdate() end })
 AimbotSection:Colorpicker({ Title="Crosshair Color", Default=Color3.new(1,1,1), Callback=function(c) BCX.xhair.color=c; BCX.xhairUpdate() end })
 
 local FOVSection = AimbotTab:Section({ Title = "FOV Circle", Icon = "disc" })
@@ -2677,7 +2800,7 @@ task.delay(1.5, function()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.3 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.4 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
