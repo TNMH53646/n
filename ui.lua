@@ -1,6 +1,12 @@
--- ==================== BlackCrown-X v3.7.4 ====================
+-- ==================== BlackCrown-X v3.7.5 ====================
+-- Changes (จาก v3.7.4):
+--   * Quick Button: ปุ่มใหม่เรียงซ้ายไปขวา แถวละ 5 ปุ่ม เต็มแล้วลงบรรทัดใหม่ (ฝั่งซ้าย เริ่มที่ตำแหน่งปุ่ม Save Now)
+--   * ปุ่มวาร์ป: เรียงแบบเดียวกัน (ซ้ายไปขวา แถวละ 5 ปุ่ม) ยังอยู่ฝั่งขวาของจอ
+--   * ลบปุ่มแล้วช่องว่างจะถูกเติมก่อนปุ่มใหม่
+--   * แก้ลากปุ่มเร็วแล้วปุ่มหลุด: Quick Button ติดตามเมาส์/นิ้วทั้งจอจนกว่าจะปล่อย (เฉพาะนิ้วที่แตะปุ่ม)
+--   * กันปุ่มหลุดออกนอกขอบจอตอนลาก
 -- Changes (จาก v3.7.3):
---   * Instant Prompt fix
+--   * Instant Prompt fix: เข้าเกมมาปิดอยู่เสมอ และตอนปิดคืนค่า HoldDuration เดิมของเกมให้ครบทุกปุ่ม
 -- Changes (จาก v3.7.2):
 --   * add Instant Prompt คืนค่าได้ Test
 --   * add Toggle Instant Prompt in misc Tab
@@ -1669,6 +1675,30 @@ local function saveQuickButtons()
     end)
 end
 
+-- [v3.7.4] ตารางจัดปุ่ม: แถวละ 5 ปุ่ม เรียงซ้าย -> ขวา เต็มแล้วลงบรรทัดใหม่
+BCX.GRID_COLS = 5
+BCX.QB_ORIGIN = Vector2.new(80, 200) -- มุมซ้ายบนของตาราง Quick Button (ช่องแรกคือปุ่ม Save Now)
+
+-- หาช่องว่างช่องแรกที่ยังไม่มีปุ่มทับ (ลบปุ่มแล้วช่องว่างจะถูกเติมก่อน)
+function BCX.nextQBSlot()
+    local S, gap = BCX.QB_SIZE, 8
+    for n = 0, 200 do
+        local x = BCX.QB_ORIGIN.X + (n % BCX.GRID_COLS) * (S + gap)
+        local y = BCX.QB_ORIGIN.Y + math.floor(n / BCX.GRID_COLS) * (S + gap)
+        local taken = false
+        for _, b in ipairs(QuickButtons) do
+            if b.Frame and b.Frame.Parent then
+                local pos = b.Frame.Position
+                if math.abs(pos.X.Offset - x) < S * 0.6 and math.abs(pos.Y.Offset - y) < S * 0.6 then
+                    taken = true; break
+                end
+            end
+        end
+        if not taken then return x, y end
+    end
+    return BCX.QB_ORIGIN.X, BCX.QB_ORIGIN.Y
+end
+
 local function createQuickButton(funcName, posX, posY, size, initState, onToggle, opts)
     opts = opts or {}
     posX = posX or 100; posY = posY or 100; size = BCX.QB_SIZE; initState = initState or false
@@ -1734,57 +1764,60 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     end
     btnData.set = function(v) btnState = v and true or false; btnData.state = btnState; paint() end
 
-    local dragging, dragStart, startPos = false, nil, nil
+        -- [v3.7.4] ติดตามเมาส์/นิ้วทั้งจอจนกว่าจะปล่อย (ลากเร็วแค่ไหนปุ่มก็ไม่หลุด)
+    local dragging, dragStart, startPos, trackInput, moveConn, endConn = false, nil, nil, nil, nil, nil
+
+    local function finish(input)
+        local t = input.UserInputType
+        if t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseButton1 then return end
+        if t == Enum.UserInputType.Touch and input ~= trackInput then return end -- นิ้วอื่นปล่อย ไม่เกี่ยว
+        if moveConn then moveConn:Disconnect(); moveConn = nil end
+        if endConn then endConn:Disconnect(); endConn = nil end
+        if not startPos then return end
+
+        if dragging then
+            saveQuickButtons()
+        elseif opts.momentary then
+            -- ปุ่มกดครั้งเดียว (เช่น Save): กะพริบแล้วทำงาน
+            local old = frame.BackgroundColor3
+            frame.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+            task.delay(0.25, function() if frame.Parent then frame.BackgroundColor3 = old end end)
+            if onToggle then pcall(onToggle) end
+        else
+            -- แตะ = สลับจากสถานะจริงของฟังก์ชัน
+            local f = BCX.F and BCX.F[funcName]
+            local want
+            if f then want = not f.get() else want = not btnState end
+            if onToggle then pcall(onToggle, want) end
+            if f then btnData.set(f.get()) else btnData.set(want) end
+            saveQuickButtons()
+        end
+        dragging = false; startPos = nil; trackInput = nil
+    end
 
     J.track(frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragStart = input.Position
-            startPos  = frame.Position
-            dragging  = false
-        end
-    end))
+        local t = input.UserInputType
+        if t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseButton1 then return end
+        trackInput, dragStart, startPos, dragging = input, input.Position, frame.Position, false
+        if moveConn then moveConn:Disconnect() end
+        if endConn then endConn:Disconnect() end
 
-    J.track(frame.InputChanged:Connect(function(input)
-        -- [v3.7.0] ล็อกอยู่ = ไม่มีทางลากได้ (แตะยังใช้งานได้ปกติ)
-        if quickButtonsLocked then dragging = false; return end
-        if (input.UserInputType == Enum.UserInputType.MouseMovement
-        or  input.UserInputType == Enum.UserInputType.Touch) and startPos and dragStart then
-            local delta = input.Position - dragStart
-            if dragging or delta.Magnitude > 14 then -- ต้องลากเกิน 14px ถึงนับว่าลาก (กันนิ้วสั่น/เผลอแตะ)
+        moveConn = UserInputService.InputChanged:Connect(function(i)
+            if quickButtonsLocked then dragging = false; return end -- ล็อกอยู่ = ไม่ลาก (แตะยังใช้ได้)
+            if not startPos then return end
+            local ok = (i.UserInputType == Enum.UserInputType.MouseMovement)
+                or (i.UserInputType == Enum.UserInputType.Touch and i == trackInput)
+            if not ok then return end
+            local d = i.Position - dragStart
+            if dragging or d.Magnitude > 14 then
                 dragging = true
+                local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
                 frame.Position = UDim2.fromOffset(
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Offset + delta.Y
-                )
+                    math.clamp(startPos.X.Offset + d.X, 0, math.max(0, vp.X - frame.Size.X.Offset)),
+                    math.clamp(startPos.Y.Offset + d.Y, 0, math.max(0, vp.Y - frame.Size.Y.Offset)))
             end
-        end
-    end))
-
-    J.track(frame.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if dragging then
-                dragging = false; startPos = nil
-                saveQuickButtons()
-            elseif opts.momentary then
-                -- ปุ่มกดครั้งเดียว (เช่น Save): ไม่สลับสถานะ แค่กะพริบแล้วทำงาน
-                local old = frame.BackgroundColor3
-                frame.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-                task.delay(0.25, function() if frame.Parent then frame.BackgroundColor3 = old end end)
-                if onToggle then pcall(onToggle) end
-            else
-                -- แตะ = สลับจาก "สถานะจริง" ของฟังก์ชัน (ไม่ใช่สถานะที่ปุ่มจำไว้เอง)
-                local f = BCX.F and BCX.F[funcName]
-                local want
-                if f then want = not f.get() else want = not btnState end
-                if onToggle then pcall(onToggle, want) end
-                -- ทาสีตามสถานะจริงหลังสั่งเสร็จ (ถ้าสั่งไม่สำเร็จ ปุ่มจะไม่เขียวหลอก)
-                if f then btnData.set(f.get()) else btnData.set(want) end
-                saveQuickButtons()
-            end
-            dragging = false; startPos = nil
-        end
+        end)
+        endConn = UserInputService.InputEnded:Connect(finish)
     end))
 
     btnData.Frame = frame
@@ -3245,11 +3278,25 @@ function BCX.addWPButton(name, x, y, mode)
     local count = 0
     for _ in pairs(BCX.WPB) do count = count + 1 end
     if not x or not y then
-        -- ตำแหน่งเริ่มต้น: ฝั่งขวา เป็นคอลัมน์ติดกับ Quick Button เรียงลงมา เต็มจอแล้วขึ้นคอลัมน์ใหม่ทางซ้าย
-        local rows = math.max(1, math.floor((vp.Y - 140) / (H + 8)))
-        local col, row = math.floor(count / rows), count % rows
-        x = vp.X - (BCX.QB_SIZE + 12) - W - 10 - col * (W + 8)
-        y = 120 + row * (H + 8)
+        -- ฝั่งขวาของจอ: เรียงซ้าย -> ขวา แถวละ 5 ปุ่ม เต็มแล้วลงบรรทัดใหม่
+        local cols = BCX.GRID_COLS
+        local x0 = vp.X - cols * (W + 8) - 12
+        local y0 = 120
+        local slot = 0
+        for n = 0, 200 do
+            local sx = x0 + (n % cols) * (W + 8)
+            local sy = y0 + math.floor(n / cols) * (H + 8)
+            local taken = false
+            for _, ob in pairs(BCX.WPB) do
+                if ob.Frame and ob.Frame.Parent then
+                    local pos = ob.Frame.Position
+                    if math.abs(pos.X.Offset - sx) < W * 0.6 and math.abs(pos.Y.Offset - sy) < H * 0.6 then
+                        taken = true; break
+                    end
+                end
+            end
+            if not taken then slot = n; x, y = sx, sy; break end
+        end
     end
     x = math.clamp(x, 0, math.max(0, vp.X - W))
     y = math.clamp(y, 0, math.max(0, vp.Y - H))
@@ -3857,9 +3904,9 @@ QBSection:Button({ Title="Add Button", Desc="สร้างปุ่มลอ�
         if btn.funcName == selectedQBFunc then notify("มีอยู่แล้ว", selectedQBFunc.." มีปุ่มแล้ว"); return end
     end
     local f = BCX.F[selectedQBFunc]
-    local real = f and f.get() or false   -- ปุ่มใหม่เริ่มจากสถานะจริง
-    local vw = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X) or 800
-    createQuickButton(selectedQBFunc, vw - (BCX.QB_SIZE + 12), 120 + #QuickButtons*(BCX.QB_SIZE + 8), BCX.QB_SIZE, real, TOGGLE_CALLBACKS[selectedQBFunc])
+    local real = f and f.get() or false
+    local sx, sy = BCX.nextQBSlot()
+    createQuickButton(selectedQBFunc, sx, sy, BCX.QB_SIZE, real, TOGGLE_CALLBACKS[selectedQBFunc])
     saveQuickButtons()
     notify("เพิ่มแล้ว", "ปุ่ม "..selectedQBFunc.." บนหน้าจอ")
 end })
@@ -4016,7 +4063,7 @@ task.delay(1.5, function()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.7.0 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.7.4 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
