@@ -3775,20 +3775,6 @@ EmoteSection:Toggle({ Title="Play Custom ID Emote", Default=false, Callback=func
     if state then stopCustomEmotes(); customTrack=playEmoteById(customEmoteIdInput) else stopCustomEmotes() end
 end })
 
-local MiscSpeedSection = MiscTab:Section({ Title = "Speed Controls", Icon = "gauge" })
-MiscSpeedSection:Input({  Title="Custom Speed", Placeholder="เช่น 30, 50...", Callback=function(input)
-    local num=tonumber(input); customSpeed=num or nil
-    if speedConnection then setSpeedLock(customSpeed or defaultSpeed) end
-end })
-MiscSpeedSection:Toggle({ Title="Lock Speed", Default=false, Callback=function(State)
-    if State then setSpeedLock(customSpeed or defaultSpeed)
-    else if speedConnection then speedConnection:Disconnect(); speedConnection=nil end end
-end })
-MiscSpeedSection:Button({ Title="Reset to Default", Callback=function()
-    local hum=localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid")
-    if hum then if speedConnection then speedConnection:Disconnect(); speedConnection=nil end; hum.WalkSpeed=defaultSpeed end
-end })
-
 local ToolsSection = MiscTab:Section({ Title = "Tools", Icon = "wrench" })
 BCX.UI["Click TP"] = ToolsSection:Toggle({ Title="Click TP Mode", Value=false, Callback=function(s)
     BCX.feat("Click TP", s, "ui")
