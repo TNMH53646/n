@@ -1,4 +1,15 @@
--- ==================== BlackCrown-X v3.6.4 ====================
+-- ==================== BlackCrown-X v3.7.0 ====================
+-- Changes (จาก v3.6.4):
+--   * Quick Button / ปุ่มวาร์ป เล็กลง (ขนาดคงที่ BCX.QB_SIZE) และชื่อยาวๆ ย่อตัวอักษรเองไม่ล้นปุ่ม
+--   * ปุ่มวาร์ป (Waypoint Button) ย้ายไปอยู่ฝั่งขวาของจอ (ปุ่มเก่าที่เคยเซฟไว้ฝั่งซ้ายจะถูกย้ายมาขวาให้เอง)
+--   * ปุ่มวาร์ปเลือกโหมดได้ตอนสร้าง: Teleport (สีฟ้า) = วาร์ปทันที / Tween (สีม่วง) = ไหลไปที่จุดด้วยความเร็วที่ตั้งได้
+--   * ล็อกตำแหน่งปุ่มใช้ได้จริงทั้ง Quick Button และปุ่มวาร์ป + มีไอคอน 🔒 บนปุ่มตอนล็อก
+--       - ล็อกเป็นฟังก์ชัน "Lock Buttons" ใช้ผ่าน Quick Button / คีย์ลัดได้
+--       - ปุ่มวาร์ปติดตามเฉพาะนิ้วที่แตะปุ่ม (เดิมนิ้วอื่น เช่น จอยเดิน ทำให้ปุ่มขยับได้) และต้องลากเกิน 14px ถึงจะนับว่าลาก
+--   * Hotkey Binder ย้ายไปอยู่เหนือ Keybinds + ทุกปุ่มวาร์ปจะมี Keybind ของตัวเองใน Settings > Waypoint Keys ("Waypoint: ชื่อจุด")
+--       แสดงปุ่มที่ใช้อยู่ในช่อง Keybind นั้นเลย (ตั้งผ่าน Hotkey Binder ก็ซิงก์กัน)
+--   * NPC ESP: ไฮไลต์ + ชื่อ + ระยะ ของทุกตัวที่มี Humanoid และไม่ใช่ผู้เล่น (ไม่ GetDescendants ทุกเฟรม ใช้ DescendantAdded + สแกนครั้งเดียวแบบแบ่งเฟรม)
+--       เปิด/ปิดผ่าน Quick Button / คีย์ลัดได้ ("NPC ESP")
 -- Changes (จาก v3.6.3):
 --   * แก้ CPU สไปค์ 1-3 วินาทีที่เกิดจากรายชื่อผู้เล่นใน Dropdown:
 --       - BCX.refreshDD: รวมเหตุการณ์คนเข้า/ออกเป็นครั้งเดียว (debounce 3 วิ)
@@ -64,6 +75,11 @@ local UserInputService = game:GetService("UserInputService")
 local camera = workspace.CurrentCamera
 local RunService = game:GetService("RunService")
 local p = game:GetService("Players").LocalPlayer
+
+J.track(rs.RenderStepped:Connect(function()
+    local c = workspace.CurrentCamera
+    if c and c ~= camera then camera = c end
+end))
 
 -- Anti AFK
 J.track(localPlayer.Idled:Connect(function()
@@ -1228,11 +1244,16 @@ E("Remove Selected Button", "ลบปุ่มที่เลือก",
   "Removes the floating button of the selected function.",
   "ลบปุ่มลอยของฟังก์ชันที่เลือก")
 E("Lock Button Positions", "ล็อกตำแหน่งปุ่ม",
-  "Stops buttons from moving when you tap them by accident.",
-  "กันปุ่มขยับเวลาแตะพลาด")
+  "Locks ALL floating buttons (including waypoint buttons) so they can't be dragged by accident. Taps still work. A 🔒 shows on each button.",
+  "ล็อกปุ่มลอยทั้งหมด (รวมปุ่มวาร์ป) ไม่ให้ลากโดยไม่ตั้งใจ แตะใช้งานได้ตามปกติ และจะมีไอคอน 🔒 บนปุ่ม")
 E("Remove All Buttons", "ลบปุ่มทั้งหมด",
   "Removes every floating button.",
   "ลบปุ่มลอยทั้งหมด")
+
+E("Button Size", "ขนาดปุ่ม",
+  "Resize all floating buttons (width and height together). 100 = default.",
+  "ปรับขนาดปุ่มลอยทั้งหมด (กว้างและสูงพร้อมกัน) 100 = ค่าเริ่มต้น")
+
 
 function BCX.title(key)
     local e = BCX.I18N[key]
@@ -1347,7 +1368,7 @@ BCX.NOSAVE = {
     ["Search Name"]=true, ["Function"]=true, ["Language"]=true, ["Show Descriptions"]=true,
     ["UI Layout Mode"]=true, ["Click TP Mode"]=true,
     ["Drag Player"]=true, ["Start Fling"]=true, ["Copy Player Movement"]=true,
-    ["Play Custom ID Emote"]=true, ["Enable Relative Tween"]=true,
+    ["Play Custom ID Emote"]=true, ["Enable Relative Tween"]=true, ["Button Size"]=true,
 }
 local SAVABLE = { Toggle=true, Input=true, Dropdown=true, Slider=true, Colorpicker=true, Keybind=true }
 
@@ -1545,6 +1566,15 @@ local QuickButtons = {}
 local QuickButtonGui = nil
 local quickButtonsLocked = false
 
+BCX.BTN_SCALE = 1
+pcall(function()
+    if isfile and isfile("BlackCrown-X/btnscale.txt") then
+        local n = tonumber(readfile("BlackCrown-X/btnscale.txt"))
+        if n then BCX.BTN_SCALE = math.clamp(n, 0.5, 2) end
+    end
+end)
+BCX.QB_SIZE = math.floor(46 * BCX.BTN_SCALE + 0.5)
+
 local function saveQuickButtons()
     pcall(function()
         local data = {}
@@ -1566,7 +1596,11 @@ end
 
 local function createQuickButton(funcName, posX, posY, size, initState, onToggle, opts)
     opts = opts or {}
-    posX = posX or 100; posY = posY or 100; size = size or 65; initState = initState or false
+    posX = posX or 100; posY = posY or 100; size = BCX.QB_SIZE; initState = initState or false
+    -- กันปุ่มที่เซฟไว้หลุดขอบจอ (เช่น เปลี่ยนอุปกรณ์/ความละเอียด)
+    local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
+    posX = math.clamp(posX, 0, math.max(0, vp.X - size))
+    posY = math.clamp(posY, 0, math.max(0, vp.Y - size))
 
     if not QuickButtonGui then
         QuickButtonGui = Instance.new("ScreenGui")
@@ -1591,7 +1625,7 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     frame.BorderSizePixel = 0
     frame.Active = true
     frame.Parent = QuickButtonGui
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 11)
     local stroke = Instance.new("UIStroke", frame)
     stroke.Color = btnState and Color3.fromRGB(0,220,80) or Color3.fromRGB(80,80,100)
     stroke.Transparency = 0.5; stroke.Thickness = 1.5
@@ -1603,11 +1637,15 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     label.Text = opts.label or funcName
     label.TextColor3 = Color3.fromRGB(230,230,240)
     label.TextScaled = true
+    label.TextWrapped = true
     label.Font = Enum.Font.GothamBold
+    -- ชื่อยาวๆ (เช่น Vehicle Fly) ย่อตัวอักษรลงเอง ไม่ล้นปุ่ม
+    local qlim = Instance.new("UITextSizeConstraint", label)
+    qlim.MinTextSize = 7; qlim.MaxTextSize = 28
 
     local dot = Instance.new("Frame", frame)
-    dot.Size = UDim2.fromOffset(7, 7)
-    dot.Position = UDim2.new(1,-10, 0, 4)
+    dot.Size = UDim2.fromOffset(6, 6)
+    dot.Position = UDim2.new(1,-9, 0, 3)
     dot.BackgroundColor3 = btnState and Color3.fromRGB(0,255,100) or Color3.fromRGB(100,100,120)
     dot.BorderSizePixel = 0
     dot.Visible = not opts.momentary
@@ -1633,11 +1671,12 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     end))
 
     J.track(frame.InputChanged:Connect(function(input)
-        if quickButtonsLocked then return end
+        -- [v3.7.0] ล็อกอยู่ = ไม่มีทางลากได้ (แตะยังใช้งานได้ปกติ)
+        if quickButtonsLocked then dragging = false; return end
         if (input.UserInputType == Enum.UserInputType.MouseMovement
-        or  input.UserInputType == Enum.UserInputType.Touch) and startPos then
+        or  input.UserInputType == Enum.UserInputType.Touch) and startPos and dragStart then
             local delta = input.Position - dragStart
-            if delta.Magnitude > 8 then
+            if dragging or delta.Magnitude > 14 then -- ต้องลากเกิน 14px ถึงนับว่าลาก (กันนิ้วสั่น/เผลอแตะ)
                 dragging = true
                 frame.Position = UDim2.fromOffset(
                     startPos.X.Offset + delta.X,
@@ -1676,6 +1715,7 @@ local function createQuickButton(funcName, posX, posY, size, initState, onToggle
     btnData.Frame = frame
     btnData.Label = label
     table.insert(QuickButtons, btnData)
+    if BCX.applyLockVisual then BCX.applyLockVisual() end
     return btnData
 end
 
@@ -1705,6 +1745,29 @@ function BCX.qbSync(name, state)
     end
 end
 
+-- [v3.7.0] ไอคอน 🔒 มุมซ้ายล่างของปุ่มลัด + ปุ่มวาร์ปทุกปุ่ม ตอนล็อกตำแหน่งอยู่
+function BCX.applyLockVisual()
+    local function mark(frame)
+        if not (frame and frame.Parent) then return end
+        local m = frame:FindFirstChild("LockMark")
+        if quickButtonsLocked and not m then
+            m = Instance.new("TextLabel")
+            m.Name = "LockMark"
+            m.BackgroundTransparency = 1
+            m.Size = UDim2.fromOffset(12, 12)
+            m.Position = UDim2.new(0, 2, 1, -13)
+            m.Text = "🔒"
+            m.TextSize = 10
+            m.TextColor3 = Color3.new(1, 1, 1)
+            m.Parent = frame
+        elseif not quickButtonsLocked and m then
+            m:Destroy()
+        end
+    end
+    for _, b in ipairs(QuickButtons) do mark(b.Frame) end
+    for _, b in pairs(BCX.WPB or {}) do mark(b.Frame) end
+end
+
 local function loadQuickButtons(callbackMap)
     pcall(function()
         if not isfile or not isfile("BlackCrown-X/quickbuttons.json") then return end
@@ -1722,7 +1785,10 @@ local function loadQuickButtons(callbackMap)
                 -- ปุ่ม Save ถาวร: คืนตำแหน่งที่เคยลากไว้
                 for _, btn in ipairs(QuickButtons) do
                     if btn.permanent and btn.Frame then
-                        btn.Frame.Position = UDim2.fromOffset(d.x or 80, d.y or 200)
+                        local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
+                        btn.Frame.Position = UDim2.fromOffset(
+                            math.clamp(d.x or 80, 0, math.max(0, vp.X - BCX.QB_SIZE)),
+                            math.clamp(d.y or 200, 0, math.max(0, vp.Y - BCX.QB_SIZE)))
                     end
                 end
             elseif d.func and callbackMap[d.func] then
@@ -1749,6 +1815,13 @@ local friendColor = Color3.fromRGB(0, 255, 128)
 local espObjects = {}
 local friendCache = {}
 local hasDrawingAPI = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+
+pcall(function()
+    local t = Drawing.new("Text")
+    t.Text = "BCX Drawing TEST"; t.Size = 24; t.Color = Color3.new(1,1,0)
+    t.Position = Vector2.new(200, 200); t.Outline = true; t.Visible = true
+    task.delay(8, function() pcall(function() t:Remove() end) end)
+end)
 
 local function checkIsFriend(plr)
     if friendCache[plr.UserId] ~= nil then return friendCache[plr.UserId] end
@@ -1813,7 +1886,7 @@ local function createESP(plr)
     end
 
     local idleHidden = false
-    local conn = rs.RenderStepped:Connect(function()
+        local function step()
         if not (espNameEnabled or espBoxEnabled or espTracerEnabled or espHighlightEnabled
             or espHealthBarEnabled or espHealthTextEnabled or espMicEnabled) then
             if not idleHidden then idleHidden = true; hideAll() end
@@ -1909,8 +1982,17 @@ local function createESP(plr)
                 end
             end
         end
+    end
+    local conn = rs.RenderStepped:Connect(function()
+        local ok, err = pcall(step)
+        if not ok and not BCX.espErrShown then
+            BCX.espErrShown = true
+            pcall(function()
+                WindUI:Notify({ Title = "ESP ERROR", Content = tostring(err), Duration = 20 })
+            end)
+        end
     end)
-
+    
     espObjects[plr] = {
         highlight=highlight, boxOutline=boxOutline, boxInline=boxInline,
         healthBarOutline=healthBarOutline, healthBarBG=healthBarBG, healthBarFill=healthBarFill,
@@ -2035,6 +2117,114 @@ J.track(rs.RenderStepped:Connect(function()
         end
     end
 end))
+
+-- ==================== NPC ESP (ทุกตัวที่มี Humanoid และไม่ใช่ผู้เล่น) ====================
+-- [v3.7.0] ไม่ใช้ GetDescendants ทุกเฟรม:
+--   • ตอนเปิด: สแกน workspace ครั้งเดียวแบบแบ่งเฟรม (หา Humanoid อย่างเดียว)
+--   • หลังจากนั้น: ฟัง workspace.DescendantAdded เฉพาะที่เป็น Humanoid (รองรับ NPC เกิดใหม่ / StreamingEnabled)
+--   • ตอนวาดเฟรมละครั้ง วนเฉพาะ NPC ที่เจอแล้ว (ไม่ค้นหาอะไรในแมพ)
+-- หมายเหตุ: Roblox แสดง Highlight พร้อมกันได้จำกัด (~31 อัน) ถ้า NPC เยอะ ชื่อ+ระยะ (Drawing) ยังขึ้นครบทุกตัว
+BCX.npc = { on = false, color = Color3.fromRGB(255, 140, 0), objs = {}, rConn = nil, aConn = nil, scanId = 0 }
+
+function BCX.npcRemove(model)
+    local d = BCX.npc.objs[model]
+    if not d then return end
+    if d.hl then pcall(function() d.hl:Destroy() end) end
+    if d.text then pcall(function() d.text:Remove() end) end
+    BCX.npc.objs[model] = nil
+end
+
+function BCX.npcAdd(hum)
+    local N = BCX.npc
+    if not N.on or not hum or not hum.Parent then return end
+    local model = hum.Parent
+    if not model:IsA("Model") or N.objs[model] then return end
+    if players:GetPlayerFromCharacter(model) then return end          -- ผู้เล่น ไม่เอา
+    if model == localPlayer.Character then return end
+    local hl = Instance.new("Highlight")
+    hl.Name = "BCX_NPC_Highlight"
+    hl.FillColor = N.color
+    hl.OutlineColor = Color3.new(1, 1, 1)
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0
+    hl.Parent = model
+    local txt
+    if hasDrawingAPI then
+        pcall(function()
+            txt = Drawing.new("Text")
+            txt.Visible = false; txt.Color = N.color; txt.Size = 14; txt.Center = true; txt.Outline = true
+        end)
+    end
+    N.objs[model] = { hum = hum, hl = hl, text = txt }
+end
+
+function BCX.npcStep()
+    local N = BCX.npc
+    local myHRP = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+    for model, d in pairs(N.objs) do
+        if not model.Parent or d.hum.Parent ~= model or players:GetPlayerFromCharacter(model) then
+            BCX.npcRemove(model)
+        else
+            local alive = d.hum.Health > 0
+            if d.hl then
+                if d.hl.Parent ~= model then d.hl.Parent = model end
+                d.hl.Enabled = alive
+            end
+            if d.text then
+                local shown = false
+                if alive then
+                    if not d.root or not d.root.Parent then
+                        d.root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+                            or model:FindFirstChild("Head") or model:FindFirstChildWhichIsA("BasePart")
+                    end
+                    if d.root then
+                        local pos, on = camera:WorldToViewportPoint(d.root.Position + Vector3.new(0, 3, 0))
+                        if on then
+                            local dist = myHRP and math.floor((d.root.Position - myHRP.Position).Magnitude) or 0
+                            d.text.Text = string.format("%s [%dm]", model.Name, dist)
+                            d.text.Position = Vector2.new(pos.X, pos.Y - 14)
+                            d.text.Visible = true
+                            shown = true
+                        end
+                    end
+                end
+                if not shown then d.text.Visible = false end
+            end
+        end
+    end
+end
+
+function BCX.npcSet(state)
+    local N = BCX.npc
+    N.on = state and true or false
+    N.scanId = N.scanId + 1
+    if N.on then
+        if not N.aConn then
+            N.aConn = workspace.DescendantAdded:Connect(function(d)
+                if d:IsA("Humanoid") then task.defer(BCX.npcAdd, d) end -- defer: รอให้ Parent นิ่งก่อน
+            end)
+        end
+        if not N.rConn then N.rConn = rs.RenderStepped:Connect(BCX.npcStep) end
+        local sid = N.scanId
+        task.spawn(function()
+            local i = 0
+            for _, d in ipairs(workspace:GetDescendants()) do
+                i = i + 1
+                if i % 2000 == 0 then
+                    task.wait()
+                    if sid ~= N.scanId or J.dead then return end
+                end
+                if d:IsA("Humanoid") then BCX.npcAdd(d) end
+            end
+        end)
+    else
+        if N.aConn then N.aConn:Disconnect(); N.aConn = nil end
+        if N.rConn then N.rConn:Disconnect(); N.rConn = nil end
+        local list = {}
+        for model in pairs(N.objs) do table.insert(list, model) end
+        for _, model in ipairs(list) do BCX.npcRemove(model) end
+    end
+end
 
 -- ==================== AIMBOT ====================
 local aimbotEnabled = false
@@ -2484,6 +2674,23 @@ BCX.F["Click TP"] = {
     label = "Click TP",
 }
 
+-- [v3.7.0] NPC ESP ใช้ผ่าน UI / คีย์ลัด / Quick Button ได้เหมือนฟังก์ชันอื่น
+BCX.F["NPC ESP"] = {
+    get = function() return BCX.npc.on end,
+    apply = function(s) BCX.npcSet(s) end,
+    label = "NPC ESP",
+}
+
+-- [v3.7.0] ล็อกตำแหน่งปุ่มลอยทั้งหมด (Quick Button + ปุ่มวาร์ป) ใช้ผ่าน Quick Button / คีย์ลัดได้
+BCX.F["Lock Buttons"] = {
+    get = function() return quickButtonsLocked end,
+    apply = function(s)
+        quickButtonsLocked = s and true or false
+        if BCX.applyLockVisual then BCX.applyLockVisual() end
+    end,
+    label = "Lock Buttons",
+}
+
 -- ดันสถานะจริงไปที่ UI + Quick Button
 function BCX.sync(name)
     local f = BCX.F[name]
@@ -2518,6 +2725,432 @@ function BCX.kbToggle(name)
     notify(name, f.get() and "เปิด" or "ปิด", 1.5)
 end
 
+E("Hotkey Binder", "ตั้งคีย์ลัดเอง")
+E("Hotkey Target", "เลือกสิ่งที่จะตั้งปุ่ม",
+  "Pick a function, Save Now, or a waypoint. Then set its key below.",
+  "เลือกฟังก์ชัน / บันทึกเดี๋ยวนี้ / จุดเซฟ แล้วตั้งปุ่มด้านล่าง")
+E("Hotkey", "ปุ่มคีย์ลัด",
+  "Click this, then press the key you want for the selected target.",
+  "กดช่องนี้ แล้วกดปุ่มที่ต้องการให้เป็นคีย์ลัดของสิ่งที่เลือก")
+E("Clear Hotkey", "ลบคีย์ลัด", "Removes the hotkey of the selected target.", "ลบคีย์ลัดของสิ่งที่เลือก")
+E("Auto Waypoint Button", "สร้างปุ่มวาร์ปอัตโนมัติ",
+  "Creates a button on the RIGHT side of the screen every time you save a waypoint (uses the Waypoint Button Mode below).",
+  "สร้างปุ่มฝั่งขวาของจอให้เองทุกครั้งที่เซฟจุด (ใช้โหมดตาม Waypoint Button Mode ด้านล่าง)")
+E("Add Waypoint Button", "เพิ่มปุ่มวาร์ป",
+  "Creates a right-side button for the selected waypoint. If it already has one, this switches its mode.",
+  "สร้างปุ่มฝั่งขวาให้จุดที่เลือก ถ้ามีปุ่มอยู่แล้วจะเปลี่ยนโหมดของปุ่มนั้นแทน")
+E("Remove Waypoint Button", "ลบปุ่มวาร์ป",
+  "Removes the button of the selected waypoint (the waypoint itself stays).", "ลบปุ่มของจุดที่เลือก (ตัวจุดยังอยู่)")
+E("Waypoint Button Mode", "โหมดปุ่มวาร์ป",
+  "Teleport = jump instantly (blue button). Tween = glide to the spot (purple button). Used when a button is created or added.",
+  "Teleport = วาร์ปทันที (ปุ่มสีฟ้า) / Tween = ไหลไปที่จุด (ปุ่มสีม่วง) ใช้ตอนสร้าง/เพิ่มปุ่ม")
+E("Waypoint Tween Speed", "ความเร็ว Tween ของปุ่มวาร์ป",
+  "How fast Tween buttons move you (studs per second).",
+  "ความเร็วที่ปุ่ม Tween พาคุณไป (studs ต่อวินาที)")
+E("Waypoint Keys", "คีย์ของปุ่มวาร์ป")
+E("NPC ESP", "ESP NPC / ม็อบ",
+  "Highlights every NPC / mob (anything with a Humanoid that isn't a player) and shows its name and distance.",
+  "ไฮไลต์ NPC / ม็อบทุกตัว (ทุกอย่างที่มี Humanoid และไม่ใช่ผู้เล่น) พร้อมชื่อและระยะ")
+E("NPC Color", "สี NPC",
+  "Color of the NPC highlight and name.", "สีไฮไลต์และชื่อของ NPC")
+BCX.NOSAVE["Hotkey Target"] = true
+BCX.NOSAVE["Hotkey"] = true
+
+-- ---------- ไฟล์ ----------
+local WPB_FILE = "BlackCrown-X/wpbuttons.json"   -- { [PlaceId] = { [ชื่อจุด] = {x=,y=,mode=,v=2} } }
+local HK_FILE  = "BlackCrown-X/hotkeys.json"     -- { [id] = "KeyName" }
+
+local function readJSON(path)
+    local ok, d = pcall(function()
+        if isfile and isfile(path) then return HttpService:JSONDecode(readfile(path)) end
+    end)
+    if ok and type(d) == "table" then return d end
+    return {}
+end
+local function writeJSON(path, data)
+    pcall(function()
+        if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+        if writefile then writefile(path, HttpService:JSONEncode(data)) end
+    end)
+end
+
+-- ---------- Hotkey ----------
+-- id:  "F:<ชื่อฟังก์ชัน>"  |  "S:Save"  |  "W:<PlaceId>:<ชื่อจุด>"  (จุดเซฟแยกตามแมพ)
+BCX.hotkeys = readJSON(HK_FILE)
+BCX.hkTarget, BCX.hkMap, BCX.hkDD, BCX.hkKB = nil, {}, nil, nil
+
+function BCX.wpId(name) return "W:" .. PlaceId .. ":" .. name end
+
+function BCX.setHotkey(id, key)
+    BCX.hotkeys[id] = key
+    writeJSON(HK_FILE, BCX.hotkeys)
+    if BCX.hkRefreshTags then BCX.hkRefreshTags() end
+    if BCX.wpKeySync then BCX.wpKeySync(id, key) end -- [v3.7.0] อัปเดตช่อง Keybind ของปุ่มวาร์ปนั้นให้ตรงกัน
+end
+
+function BCX.tpWaypoint(name)
+    if BCX.wpTweenStop then BCX.wpTweenStop() end -- วาร์ปทันที = ยกเลิก Tween ที่กำลังไหลอยู่
+    local d = waypointsData[name]
+    if not d then return end
+    local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+    if not root then notify("Error", "Character not found!"); return end
+    root.CFrame = CFrame.new(table.unpack(d))
+    pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+end
+
+function BCX.runHotkeyTarget(id)
+    local kind, rest = id:match("^(%a):(.+)$")
+    if kind == "F" then
+        BCX.kbToggle(rest)
+    elseif kind == "S" then
+        BCX.saveNow()
+    elseif kind == "W" then
+        local pid, name = rest:match("^(%d+):(.+)$")
+        if pid == PlaceId and name then BCX.goWaypoint(name) end -- [v3.7.0] ทำตามโหมดของปุ่ม (Teleport/Tween)
+    end
+end
+
+J.track(UserInputService.InputBegan:Connect(function(input)
+    if BCX.dead or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    if UserInputService:GetFocusedTextBox() then return end
+    local k = input.KeyCode.Name
+    for id, key in pairs(BCX.hotkeys) do
+        if key == k then task.spawn(BCX.runHotkeyTarget, id) end
+    end
+end))
+
+-- รายการเป้าหมายทั้งหมดที่ตั้งคีย์ลัดได้ (แสดงปุ่มที่ตั้งไว้ต่อท้ายชื่อ)
+function BCX.hkTargets()
+    local labels, map = {}, {}
+    local function add(label, id)
+        local k = BCX.hotkeys[id]
+        local l = k and (label .. "  [" .. k .. "]") or label
+        table.insert(labels, l); map[l] = id
+    end
+    local names = {}
+    for n in pairs(BCX.F) do table.insert(names, n) end
+    table.sort(names)
+    for _, n in ipairs(names) do add(n, "F:" .. n) end
+    add("Save Now", "S:Save")
+    local wn = {}
+    for n in pairs(waypointsData) do table.insert(wn, n) end
+    table.sort(wn)
+    for _, n in ipairs(wn) do add("📍 " .. n, BCX.wpId(n)) end
+    return labels, map
+end
+
+function BCX.hkRefresh(selectId)
+    local labels, map = BCX.hkTargets()
+    BCX.hkMap = map
+    local dd = BCX.hkDD
+    if not dd then return end
+    pcall(function() dd:Refresh(labels) end)
+    local want = selectId or BCX.hkTarget
+    local found = false
+    if want then
+        for l, id in pairs(map) do
+            if id == want then found = true; pcall(function() dd:Select(l) end); break end
+        end
+    end
+    if not found then BCX.hkTarget = nil end
+end
+
+-- ---------- Waypoint QAB (ฝั่งขวาของจอ) ----------
+-- [v3.7.0] ปุ่มวาร์ปมี 2 โหมด: Teleport (สีฟ้า) วาร์ปทันที / Tween (สีม่วง) ไหลไปที่จุดด้วยความเร็วที่ตั้งได้
+BCX.WPB = {}            -- [ชื่อจุด] = { Frame=, Tag=, mode=, paint= }
+BCX.wpbAuto = true
+BCX.wpbMode = "Teleport" -- โหมดของปุ่มที่จะสร้างใหม่
+BCX.wpbSpeed = 80        -- ความเร็ว Tween (studs/วินาที)
+BCX.WPB_W = math.floor(54 * BCX.BTN_SCALE + 0.5)
+BCX.WPB_H = math.floor(42 * BCX.BTN_SCALE + 0.5)
+BCX.WPB_COL = {
+    Teleport = { bg = Color3.fromRGB(30, 45, 70), stroke = Color3.fromRGB(0, 150, 255),
+                 flash = Color3.fromRGB(0, 170, 255), tag = Color3.fromRGB(120, 200, 255) },
+    Tween    = { bg = Color3.fromRGB(65, 35, 85), stroke = Color3.fromRGB(200, 100, 255),
+                 flash = Color3.fromRGB(200, 100, 255), tag = Color3.fromRGB(225, 170, 255) },
+}
+BCX.WPKB = {}            -- [ชื่อจุด] = Keybind element ใน Settings > Waypoint Keys
+BCX.WPKeySec = nil       -- ตั้งค่าตอนสร้างหน้า Settings
+BCX.wpCollide = {}
+BCX.wpTweenSession = 0
+local wpbGui
+
+local function wpbEnsureGui()
+    if wpbGui and wpbGui.Parent then return wpbGui end
+    local g = Instance.new("ScreenGui")
+    g.Name = "BCX_WaypointButtons"
+    g.ResetOnSpawn = false
+    g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    g.DisplayOrder = 999
+    pcall(function() g.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+    if not g.Parent then g.Parent = p:WaitForChild("PlayerGui") end
+    J.obj(g)
+    wpbGui = g
+    return g
+end
+
+function BCX.saveWPB()
+    local all = readJSON(WPB_FILE)
+    local mine = {}
+    for name, b in pairs(BCX.WPB) do
+        if b.Frame and b.Frame.Parent then
+            mine[name] = { x = b.Frame.Position.X.Offset, y = b.Frame.Position.Y.Offset, mode = b.mode, v = 2 }
+        end
+    end
+    all[PlaceId] = mine
+    writeJSON(WPB_FILE, all)
+end
+
+function BCX.hkRefreshTags()
+    for name, b in pairs(BCX.WPB) do
+        if b.Tag then b.Tag.Text = BCX.hotkeys[BCX.wpId(name)] or "" end
+    end
+end
+
+-- ---------- Keybind element ของปุ่มวาร์ปแต่ละปุ่ม (Settings > Waypoint Keys) ----------
+function BCX.wpKeyAdd(name)
+    local sec = BCX.WPKeySec
+    if not sec or BCX.WPKB[name] then return end
+    local id = BCX.wpId(name)
+    local title = "Waypoint: " .. name
+    BCX.NOSAVE[title] = true -- ปุ่มที่ตั้งเก็บใน hotkeys.json อยู่แล้ว ไม่ต้องให้ config เซฟซ้ำ
+    local ok, el = pcall(function()
+        return sec:Keybind({ Title = title, Value = BCX.hotkeys[id] or "None",
+            Callback = function(v)
+                -- ถูกเรียกทั้งตอนเปลี่ยนปุ่มและตอนกดปุ่ม: ข้ามถ้าเป็นค่าเดิม / None
+                if type(v) ~= "string" or v == "" or v == "None" or v == "Unknown" then return end
+                if BCX.hotkeys[id] == v then return end
+                BCX.setHotkey(id, v)
+                BCX.hkRefresh()
+                notify("Saved", "Hotkey = " .. v, 1.5)
+            end })
+    end)
+    if ok and el then BCX.WPKB[name] = el end
+end
+
+function BCX.wpKeyRemove(name)
+    local el = BCX.WPKB[name]
+    if el then pcall(function() el:Destroy() end) end
+    BCX.WPKB[name] = nil
+end
+
+function BCX.wpKeySync(id, key)
+    local n = id:match("^W:" .. PlaceId .. ":(.+)$")
+    local el = n and BCX.WPKB[n]
+    if el then pcall(function() el:Set(key or "None") end) end
+end
+
+-- ---------- Tween ไปที่จุดเซฟ ----------
+-- ขยับ HRP ตรงๆ ทุกเฟรมด้วยความเร็ว BCX.wpbSpeed (ทะลุสิ่งกีดขวางระหว่างทาง) แตะปุ่มอื่น/ปุ่ม Teleport = เปลี่ยนเป้าหมายทันที
+function BCX.wpTweenRestore()
+    for part in pairs(BCX.wpCollide) do
+        if part and part.Parent then pcall(function() part.CanCollide = true end) end
+    end
+    BCX.wpCollide = {}
+end
+
+function BCX.wpTweenStop()
+    BCX.wpTweenSession = BCX.wpTweenSession + 1
+    BCX.wpTweenRestore()
+end
+
+function BCX.tweenWaypoint(name)
+    local d = waypointsData[name]
+    if not d then return end
+    local char = p.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then notify("Error", "Character not found!"); return end
+    BCX.wpTweenSession = BCX.wpTweenSession + 1
+    local sid = BCX.wpTweenSession
+    local goal = CFrame.new(table.unpack(d))
+    local goalPos, rot = goal.Position, goal - goal.Position
+
+    local hconn, sconn
+    local function stop(restore)
+        if hconn then hconn:Disconnect() end
+        if sconn then sconn:Disconnect() end
+        if restore then BCX.wpTweenRestore() end
+    end
+
+    -- ปิดการชนของตัวละครระหว่างไหล (Humanoid เปิดกลับทุกเฟรม จึงต้องปิดซ้ำใน Stepped)
+    sconn = RunService.Stepped:Connect(function()
+        if sid ~= BCX.wpTweenSession or not char.Parent then stop(false); return end
+        for _, part in ipairs(char:GetChildren()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                BCX.wpCollide[part] = true
+                part.CanCollide = false
+            end
+        end
+    end)
+    hconn = RunService.Heartbeat:Connect(function(dt)
+        if sid ~= BCX.wpTweenSession then stop(false); return end -- มี Tween/Teleport ใหม่มารับช่วงแล้ว
+        if J.dead or not hrp.Parent then stop(true); return end
+        local diff = goalPos - hrp.Position
+        local step = math.max(BCX.wpbSpeed, 1) * dt
+        if diff.Magnitude <= step then
+            hrp.CFrame = CFrame.new(goalPos) * rot
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            stop(true)
+            return
+        end
+        hrp.CFrame = CFrame.new(hrp.Position + diff.Unit * step) * rot
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
+    J.track(hconn); J.track(sconn)
+end
+
+-- ไปที่จุดเซฟตามโหมดของปุ่ม (ไม่มีปุ่ม = Teleport)
+function BCX.goWaypoint(name, mode)
+    local b = BCX.WPB[name]
+    mode = mode or (b and b.mode) or "Teleport"
+    if mode == "Tween" then BCX.tweenWaypoint(name) else BCX.tpWaypoint(name) end
+end
+
+function BCX.addWPButton(name, x, y, mode)
+    mode = (mode == "Tween" or mode == "Teleport") and mode or BCX.wpbMode
+    local ex = BCX.WPB[name]
+    if ex and ex.Frame and ex.Frame.Parent then
+        -- มีปุ่มอยู่แล้ว: แค่สลับโหมด/สี
+        if ex.mode ~= mode then ex.mode = mode; ex.paint() end
+        BCX.wpKeyAdd(name)
+        return ex
+    end
+    local gui = wpbEnsureGui()
+    local W, H = BCX.WPB_W, BCX.WPB_H
+    local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
+    local count = 0
+    for _ in pairs(BCX.WPB) do count = count + 1 end
+    if not x or not y then
+        -- ตำแหน่งเริ่มต้น: ฝั่งขวา เป็นคอลัมน์ติดกับ Quick Button เรียงลงมา เต็มจอแล้วขึ้นคอลัมน์ใหม่ทางซ้าย
+        local rows = math.max(1, math.floor((vp.Y - 140) / (H + 8)))
+        local col, row = math.floor(count / rows), count % rows
+        x = vp.X - (BCX.QB_SIZE + 12) - W - 10 - col * (W + 8)
+        y = 120 + row * (H + 8)
+    end
+    x = math.clamp(x, 0, math.max(0, vp.X - W))
+    y = math.clamp(y, 0, math.max(0, vp.Y - H))
+
+    local col = BCX.WPB_COL[mode]
+    local frame = Instance.new("Frame")
+    frame.Name = "WPB_" .. name
+    frame.Size = UDim2.fromOffset(W, H)
+    frame.Position = UDim2.fromOffset(x, y)
+    frame.BackgroundColor3 = col.bg
+    frame.BackgroundTransparency = 0.1
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Parent = gui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = col.stroke; stroke.Transparency = 0.4; stroke.Thickness = 1.5
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, -6, 0.62, 0)
+    label.Position = UDim2.new(0, 3, 0.06, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(235, 240, 255)
+    label.TextScaled = true
+    label.TextWrapped = true
+    label.Font = Enum.Font.GothamBold
+    local lim = Instance.new("UITextSizeConstraint", label)
+    lim.MinTextSize = 7; lim.MaxTextSize = 28
+
+    local tag = Instance.new("TextLabel", frame)
+    tag.Size = UDim2.new(1, -6, 0.26, 0)
+    tag.Position = UDim2.new(0, 3, 0.72, 0)
+    tag.BackgroundTransparency = 1
+    tag.Text = BCX.hotkeys[BCX.wpId(name)] or ""
+    tag.TextColor3 = col.tag
+    tag.TextScaled = true
+    tag.Font = Enum.Font.Gotham
+    local lim2 = Instance.new("UITextSizeConstraint", tag)
+    lim2.MinTextSize = 6; lim2.MaxTextSize = 20
+
+    local b = { Frame = frame, Tag = tag, mode = mode }
+    b.paint = function()
+        local c = BCX.WPB_COL[b.mode]
+        frame.BackgroundColor3 = c.bg
+        stroke.Color = c.stroke
+        tag.TextColor3 = c.tag
+    end
+
+    -- [v3.7.0] ติดตามเฉพาะ "นิ้ว/เมาส์ที่แตะปุ่มนี้" (เดิมฟังทุกนิ้ว เช่น นิ้วที่กดจอยเดิน ทำให้ปุ่มขยับเอง)
+    local dragging, dragStart, startPos, trackInput, moveConn, endConn = false, nil, nil, nil, nil, nil
+    local function isMine(i)
+        if i.UserInputType == Enum.UserInputType.Touch then return i == trackInput end
+        return i.UserInputType == Enum.UserInputType.MouseMovement or i == trackInput
+    end
+    local function finish(input)
+        if input.UserInputType == Enum.UserInputType.Touch and input ~= trackInput then return end -- นิ้วอื่นปล่อย ไม่เกี่ยว
+        if moveConn then moveConn:Disconnect(); moveConn = nil end
+        if endConn then endConn:Disconnect(); endConn = nil end
+        if not startPos then return end
+        if dragging then
+            BCX.saveWPB()
+        else
+            frame.BackgroundColor3 = BCX.WPB_COL[b.mode].flash
+            task.delay(0.25, function() if frame.Parent then b.paint() end end)
+            BCX.goWaypoint(name)
+        end
+        dragging = false; startPos = nil; trackInput = nil
+    end
+    J.track(frame.InputBegan:Connect(function(input)
+        local t = input.UserInputType
+        if t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseButton1 then return end
+        trackInput, dragStart, startPos, dragging = input, input.Position, frame.Position, false
+        if moveConn then moveConn:Disconnect() end
+        if endConn then endConn:Disconnect() end
+        moveConn = UserInputService.InputChanged:Connect(function(i)
+            if quickButtonsLocked then dragging = false; return end -- ล็อกอยู่ = ไม่ลาก (แตะยังใช้ได้)
+            if not startPos or not isMine(i) then return end
+            if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local d = i.Position - dragStart
+            if dragging or d.Magnitude > 14 then
+                dragging = true
+                frame.Position = UDim2.fromOffset(startPos.X.Offset + d.X, startPos.Y.Offset + d.Y)
+            end
+        end)
+        endConn = UserInputService.InputEnded:Connect(finish)
+    end))
+
+    BCX.WPB[name] = b
+    BCX.wpKeyAdd(name)
+    if BCX.applyLockVisual then BCX.applyLockVisual() end
+    return b
+end
+
+function BCX.removeWPButton(name)
+    local b = BCX.WPB[name]
+    if b then
+        pcall(function() b.Frame:Destroy() end)
+        BCX.WPB[name] = nil
+        BCX.wpKeyRemove(name)
+        BCX.saveWPB()
+    end
+end
+
+-- โหลดปุ่มของแมพนี้ (เรียกจาก PART D)
+function BCX.loadWPButtons()
+    local mine = readJSON(WPB_FILE)[PlaceId]
+    if type(mine) ~= "table" then return end
+    local migrated = false
+    for name, pos in pairs(mine) do
+        if waypointsData[name] and type(pos) == "table" then
+            if pos.v == 2 then
+                BCX.addWPButton(name, pos.x, pos.y, pos.mode)
+            else
+                -- ปุ่มเก่า (v3.6.x) เคยอยู่ฝั่งซ้าย: ย้ายมาฝั่งขวาให้เองเป็นโหมด Teleport
+                BCX.addWPButton(name, nil, nil, "Teleport")
+                migrated = true
+            end
+        end
+    end
+    if migrated then BCX.saveWPB() end
+end
+
 -- ==================== UI: AIMBOT TAB ====================
 local AimbotSection = AimbotTab:Section({ Title = "Aimbot Core", Icon = "target" })
 AimbotSection:Toggle({ Title="Enable Aimbot",    Desc="เปิดใช้งาน (คลิกขวาค้าง)", Default=false, Callback=function(s) aimbotEnabled=s end })
@@ -2545,8 +3178,19 @@ ESPSettingsSection:Toggle({ Title="Health % Text",    Default=false, Callback=fu
 ESPSettingsSection:Toggle({ Title="Tracer Line",      Default=false, Callback=function(s) espTracerEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Highlight",        Default=false, Callback=function(s) espHighlightEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Mic Indicator",    Default=false, Callback=function(s) espMicEnabled=s end })
+-- [v3.7.0] NPC ESP: ไฮไลต์ + ชื่อ + ระยะ ของทุกตัวที่มี Humanoid และไม่ใช่ผู้เล่น
+BCX.UI["NPC ESP"] = ESPSettingsSection:Toggle({ Title="NPC ESP", Default=false, Callback=function(s)
+    BCX.feat("NPC ESP", s, "ui")
+end })
 ESPSettingsSection:Colorpicker({ Title="Enemy / Default Color", Default=Color3.fromRGB(255,0,0),   Callback=function(c) espColor=c end })
 ESPSettingsSection:Colorpicker({ Title="Friend Color",          Default=Color3.fromRGB(0,255,128), Callback=function(c) friendColor=c end })
+ESPSettingsSection:Colorpicker({ Title="NPC Color", Default=Color3.fromRGB(255,140,0), Callback=function(c)
+    BCX.npc.color = c
+    for _, d in pairs(BCX.npc.objs) do
+        if d.hl then d.hl.FillColor = c end
+        if d.text then d.text.Color = c end
+    end
+end })
 
 local ObjectSearchSection = ESPTab:Section({ Title = "Object Search ESP", Icon = "search" })
 ObjectSearchSection:Input({ Title="Search Name", Placeholder="เช่น Door, Chest, Coin...", Callback=function(v) searchTargetText=v; BCX.queueObjectESP() end })
@@ -2640,6 +3284,8 @@ WaypointSection:Button({ Title="Save Current Position", Callback=function()
         waypointsData[trimmed] = { root.CFrame:GetComponents() }
         saveWaypointsToFile()
         rebuildWPDrop(trimmed)
+        if BCX.wpbAuto then BCX.addWPButton(trimmed, nil, nil, BCX.wpbMode); BCX.saveWPB() end
+        BCX.hkRefresh()
         notify("Saved!", "เซฟ: " .. trimmed)
     else notify("Error", "ไม่พบตัวละคร!") end
 end })
@@ -2659,11 +3305,31 @@ WaypointSection:Button({ Title="Delete Selected", Callback=function()
     waypointsData[d] = nil
     saveWaypointsToFile()
     rebuildWPDrop()
+    BCX.removeWPButton(d); BCX.setHotkey(BCX.wpId(d), nil); BCX.hkRefresh()
     notify("Deleted", "ลบ: " .. d)
 end })
 WaypointSection:Button({ Title="🔄 Refresh List", Callback=function()
     rebuildWPDrop()
     notify("Refreshed", "รีเฟรชรายชื่อแล้ว", 1.5)
+end })
+
+-- [v3.7.0] โหมดของปุ่มวาร์ปที่จะสร้าง: Teleport (ฟ้า) / Tween (ม่วง)
+WaypointSection:Dropdown({ Title="Waypoint Button Mode", Values={"Teleport","Tween"}, Value="Teleport",
+    Callback=function(v) BCX.wpbMode = (v == "Tween") and "Tween" or "Teleport" end })
+WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1, Value={Min=10,Max=300,Default=80},
+    Callback=function(v) BCX.wpbSpeed = tonumber(v) or 80 end })
+WaypointSection:Toggle({ Title="Auto Waypoint Button", Value=true, Callback=function(s) BCX.wpbAuto = s end })
+WaypointSection:Button({ Title="Add Waypoint Button", Callback=function()
+    if selectedWaypointName == "" or not waypointsData[selectedWaypointName] then
+        notify("Error", "Select a waypoint first!"); return
+    end
+    BCX.addWPButton(selectedWaypointName, nil, nil, BCX.wpbMode); BCX.saveWPB()
+    notify("Added", "Added " .. selectedWaypointName .. " (" .. BCX.wpbMode .. ")")
+end })
+WaypointSection:Button({ Title="Remove Waypoint Button", Callback=function()
+    if selectedWaypointName == "" then notify("Error", "Select a waypoint first!"); return end
+    BCX.removeWPButton(selectedWaypointName)
+    notify("Removed", "Removed " .. selectedWaypointName)
 end })
 
 -- Drag Player
@@ -2941,19 +3607,100 @@ QBSection:Button({ Title="Add Button", Desc="สร้างปุ่มลอ�
     end
     local f = BCX.F[selectedQBFunc]
     local real = f and f.get() or false   -- ปุ่มใหม่เริ่มจากสถานะจริง
-    createQuickButton(selectedQBFunc, 80 + #QuickButtons*75, 200, 65, real, TOGGLE_CALLBACKS[selectedQBFunc])
+    local vw = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X) or 800
+    createQuickButton(selectedQBFunc, vw - (BCX.QB_SIZE + 12), 120 + #QuickButtons*(BCX.QB_SIZE + 8), BCX.QB_SIZE, real, TOGGLE_CALLBACKS[selectedQBFunc])
     saveQuickButtons()
     notify("เพิ่มแล้ว", "ปุ่ม "..selectedQBFunc.." บนหน้าจอ")
 end })
 QBSection:Button({ Title="Remove Selected Button", Callback=function()
     removeQuickButton(selectedQBFunc); notify("ลบแล้ว", "ลบ "..selectedQBFunc)
 end })
-QBSection:Toggle({ Title="Lock Button Positions", Desc="ป้องกันลากโดยไม่ตั้งใจ", Value=false, Callback=function(state) quickButtonsLocked=state end })
+-- [v3.7.0] ล็อกเป็นฟังก์ชันกลาง "Lock Buttons" (ซิงก์ UI / Quick Button / คีย์ลัด) ล็อกทั้ง Quick Button และปุ่มวาร์ป
+BCX.UI["Lock Buttons"] = QBSection:Toggle({ Title="Lock Button Positions", Value=false, Callback=function(state)
+    BCX.feat("Lock Buttons", state, "ui")
+end })
 QBSection:Button({ Title="Remove All Buttons", Callback=function()
     removeAllQuickButtons(); notify("ลบแล้ว","ลบปุ่มทั้งหมดแล้ว")
 end })
 
--- [B] Keybinds (ทุกปุ่มพลิกจากสถานะจริง แล้วซิงก์ UI + Quick Button)
+BCX.btnScaleTick = 0
+function BCX.applyBtnScale(s)
+    s = math.clamp(s, 0.5, 2)
+    BCX.BTN_SCALE = s
+    BCX.QB_SIZE = math.floor(46 * s + 0.5)
+    BCX.WPB_W = math.floor(54 * s + 0.5)
+    BCX.WPB_H = math.floor(42 * s + 0.5)
+    for _, b in ipairs(QuickButtons) do
+        if b.Frame and b.Frame.Parent then
+            b.Frame.Size = UDim2.fromOffset(BCX.QB_SIZE, BCX.QB_SIZE)
+        end
+    end
+    for _, b in pairs(BCX.WPB) do
+        if b.Frame and b.Frame.Parent then
+            b.Frame.Size = UDim2.fromOffset(BCX.WPB_W, BCX.WPB_H)
+        end
+    end
+    -- เขียนไฟล์หลังหยุดลากสไลด์
+    BCX.btnScaleTick = BCX.btnScaleTick + 1
+    local t = BCX.btnScaleTick
+    task.delay(0.4, function()
+        if t ~= BCX.btnScaleTick then return end
+        pcall(function()
+            if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+            if writefile then writefile("BlackCrown-X/btnscale.txt", tostring(s)) end
+        end)
+        saveQuickButtons()
+        if BCX.saveWPB then BCX.saveWPB() end
+    end)
+end
+
+QBSection:Slider({ Title="Button Size", Step=5,
+    Value={ Min=50, Max=200, Default=math.floor(BCX.BTN_SCALE * 100 + 0.5) },
+    Callback=function(v) BCX.applyBtnScale((tonumber(v) or 100) / 100) end })
+
+-- [B] Hotkey Binder (ย้ายมาอยู่เหนือ Keybinds)
+do
+    local HK = SettingsTab:Section({ Title = "Hotkey Binder", Icon = "keyboard" })
+    local labels, map = BCX.hkTargets()
+    BCX.hkMap = map
+
+    BCX.hkDD = HK:Dropdown({ Title = "Hotkey Target", Values = labels, Value = "",
+        Callback = function(v)
+            local id = BCX.hkMap[v]
+            if not id then return end
+            BCX.hkTarget = id
+            local cur = BCX.hotkeys[id]
+            if BCX.hkKB then pcall(function() BCX.hkKB:Set(cur or "None") end) end
+        end })
+
+    BCX.hkKB = HK:Keybind({ Title = "Hotkey", Value = "None",
+        Callback = function(v)
+            -- ถูกเรียกทั้งตอนเปลี่ยนปุ่มและตอนกดปุ่ม: ข้ามถ้าเป็นค่าเดิม / None
+            if type(v) ~= "string" or v == "" or v == "None" or v == "Unknown" then return end
+            local id = BCX.hkTarget
+            if not id or BCX.hotkeys[id] == v then return end
+            for other, key in pairs(BCX.hotkeys) do
+                if key == v and other ~= id then
+                    notify("Hotkey", v .. " ถูกใช้กับอย่างอื่นอยู่แล้ว (จะทำงานทั้งคู่)", 3)
+                    break
+                end
+            end
+            BCX.setHotkey(id, v)
+            BCX.hkRefresh(id)
+            notify("Saved", "Hotkey = " .. v, 1.5)
+        end })
+
+    HK:Button({ Title = "Clear Hotkey", Callback = function()
+        local id = BCX.hkTarget
+        if not id then notify("Error", "Select a player first!"); return end
+        BCX.setHotkey(id, nil)
+        if BCX.hkKB then pcall(function() BCX.hkKB:Set("None") end) end
+        BCX.hkRefresh(id)
+        notify("Deleted", "Hotkey cleared", 1.5)
+    end })
+end
+
+-- [C] Keybinds (ทุกปุ่มพลิกจากสถานะจริง แล้วซิงก์ UI + Quick Button)
 local KeybindSection = SettingsTab:Section({ Title = "Keybinds", Icon = "keyboard" })
 KeybindSection:Keybind({ Title="Noclip",         Value="V", Callback=function() BCX.kbToggle("Noclip") end })
 KeybindSection:Keybind({ Title="Infinite Jump",  Value="T", Callback=function() BCX.kbToggle("Infinite Jump") end })
@@ -2981,9 +3728,13 @@ local EmergencySection = SettingsTab:Section({ Title = "Emergency", Icon = "tria
 EmergencySection:Button({ Title="Emergency Reset", Desc="ปิดทุกฟังก์ชัน + คืนเมาส์/กล้อง (คีย์ลัด: Delete)", Callback=function() if BCX.panic then BCX.panic() end end })
 EmergencySection:Button({ Title="Unload Script", Desc="ลบสคริปต์ทิ้งทั้งหมด (กด Delete 2 ครั้งติดกันก็ได้)", Callback=function() if BCX.unload then BCX.unload() end end })
 
+-- [v3.7.0] Keybind ของปุ่มวาร์ปแต่ละปุ่ม ("Waypoint: ชื่อจุด") จะถูกสร้างต่อท้ายหัวข้อนี้ตอนสร้างปุ่ม
+-- (ต้องสร้างเป็นอันสุดท้ายของหน้า Settings เพื่อให้ element ที่เพิ่มทีหลังต่อท้ายหัวข้อนี้พอดี)
+BCX.WPKeySec = SettingsTab:Section({ Title = "Waypoint Keys", Icon = "map-pin" })
+
 -- ปุ่ม Save ถาวร: เป็นหนึ่งใน "ปุ่มลัดบนจอ (ลากได้)" ลบไม่ได้
 function BCX.saveLabelText() return (BCX.Lang == "Thai") and "บันทึกเดี๋ยวนี้" or "Save Now" end
-createQuickButton("Save", 80, 200, 65, false, function() BCX.saveNow() end,
+createQuickButton("Save", 80, 200, BCX.QB_SIZE, false, function() BCX.saveNow() end,
     { permanent = true, momentary = true, label = BCX.saveLabelText() })
 BCX.onLang = function()
     for _, btn in ipairs(QuickButtons) do
@@ -3007,12 +3758,14 @@ task.delay(1.5, function()
         if kc then Window:SetToggleKey(kc) end
     end)
     loadQuickButtons(TOGGLE_CALLBACKS)
+    BCX.loadWPButtons()
     -- ซิงก์ทุกฟังก์ชันอีกรอบหลังโหลดเสร็จ ให้ UI กับปุ่มตรงกับสถานะจริง
     for name in pairs(BCX.F) do pcall(BCX.sync, name) end
+    if BCX.applyLockVisual then BCX.applyLockVisual() end
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.6.4 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.7.0 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
@@ -3303,6 +4056,7 @@ task.spawn(function()
             if fn.get() then pcall(BCX.feat, name, false) end
         end
         pcall(BCX.flingStop)
+        pcall(BCX.wpTweenStop)
         pcall(stopMirroring)
         pcall(stopCustomEmotes)
         if speedConnection then
@@ -3457,6 +4211,8 @@ J.onClean(function()
     pcall(BCX.setAF, false)
     pcall(BCX.flingStop)
     pcall(BCX.flingCleanup)
+    pcall(BCX.wpTweenStop)
+    pcall(BCX.npcSet, false)
     pcall(stopMirroring)
     pcall(stopCustomEmotes)
     if speedConnection then
@@ -3478,7 +4234,7 @@ J.onClean(function()
     QuickButtons = {}
     pcall(function()
         for _, d in ipairs(workspace:GetDescendants()) do
-            if d.Name == "ESP_Highlight" or d.Name == "ObjESP_Highlight"
+            if d.Name == "ESP_Highlight" or d.Name == "ObjESP_Highlight" or d.Name == "BCX_NPC_Highlight"
             or d.Name == "TweenPlatform" or d.Name == "TweenBodyVelocity" or d.Name == "BCX_FlingBV" then
                 pcall(function() d:Destroy() end)
             end
