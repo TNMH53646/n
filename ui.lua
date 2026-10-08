@@ -1,6 +1,7 @@
 -- ==================== BlackCrown-X v3.7.6 ====================
 -- Changes (จาก v3.7.5):
 --   * Waypoint Button Mode: เปลี่ยน Dropdown แล้วปุ่มวาร์ปของจุดที่เลือกเปลี่ยนโหมด (Teleport/Tween) + สีทันที ไม่ต้องกด Add Waypoint Button ใหม่
+--   * Waypoint Tween Speed: สไลด์สูงสุด 5000 + เพิ่มช่องพิมพ์ความเร็วใต้สไลด์ (ซิงก์กัน) ค่าเริ่มต้น 300
 -- Changes (จาก v3.7.4):
 --   * Quick Button: ปุ่มใหม่เรียงซ้ายไปขวา แถวละ 5 ปุ่ม เต็มแล้วลงบรรทัดใหม่ (ฝั่งซ้าย เริ่มที่ตำแหน่งปุ่ม Save Now)
 --   * ปุ่มวาร์ป: เรียงแบบเดียวกัน (ซ้ายไปขวา แถวละ 5 ปุ่ม) ยังอยู่ฝั่งขวาของจอ
@@ -3004,6 +3005,11 @@ E("Waypoint Button Mode", "โหมดปุ่มวาร์ป",
 E("Waypoint Tween Speed", "ความเร็ว Tween ของปุ่มวาร์ป",
   "How fast Tween buttons move you (studs per second).",
   "ความเร็วที่ปุ่ม Tween พาคุณไป (studs ต่อวินาที)")
+E("Waypoint Speed Input", "พิมพ์ความเร็ว Tween",
+  "Type the exact Tween speed (10-5000 studs per second). Stays in sync with the slider above.",
+  "พิมพ์ความเร็ว Tween ที่ต้องการ (10-5000 studs ต่อวินาที) ซิงก์กับสไลด์ด้านบน",
+  "e.g. 300, 1000...", "เช่น 300, 1000...")
+BCX.NOSAVE["Waypoint Speed Input"] = true -- ให้สไลด์เป็นตัวเซฟค่าอย่างเดียว กันค่าตีกันตอนโหลด
 E("Waypoint Keys", "คีย์ของปุ่มวาร์ป")
 E("NPC ESP", "ESP NPC / ม็อบ",
   "Highlights every NPC / mob (anything with a Humanoid that isn't a player) and shows its name and distance.",
@@ -3117,7 +3123,7 @@ end
 BCX.WPB = {}            -- [ชื่อจุด] = { Frame=, Tag=, mode=, paint= }
 BCX.wpbAuto = true
 BCX.wpbMode = "Teleport" -- โหมดของปุ่มที่จะสร้างใหม่
-BCX.wpbSpeed = 80        -- ความเร็ว Tween (studs/วินาที)
+BCX.wpbSpeed = 300        -- ความเร็ว Tween (studs/วินาที)
 BCX.WPB_W = math.floor(54 * BCX.BTN_SCALE + 0.5)
 BCX.WPB_H = math.floor(42 * BCX.BTN_SCALE + 0.5)
 BCX.WPB_COL = {
@@ -3612,8 +3618,33 @@ WaypointSection:Dropdown({ Title="Waypoint Button Mode", Values={"Teleport","Twe
             BCX.saveWPB()
         end
     end })
-WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1, Value={Min=10,Max=5000,Default=100},
-    Callback=function(v) BCX.wpbSpeed = tonumber(v) or 80 end })
+-- [v3.7.6] สไลด์ + ช่องพิมพ์ความเร็ว Tween ซิงก์กัน (มือถือพิมพ์เลขตรงๆ ได้)
+local wpSpeedSlider, wpSpeedInput
+local wpSpeedBusy = false
+
+wpSpeedSlider = WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1,
+    Value={Min=10, Max=5000, Default=300},
+    Callback=function(v)
+        local n = tonumber(v) or 300
+        BCX.wpbSpeed = n
+        if wpSpeedBusy then return end
+        wpSpeedBusy = true
+        if wpSpeedInput then pcall(function() wpSpeedInput:Set(tostring(n)) end) end
+        wpSpeedBusy = false
+    end })
+
+wpSpeedInput = WaypointSection:Input({ Title="Waypoint Speed Input", Value="300",
+    Callback=function(v)
+        if wpSpeedBusy then return end
+        local n = tonumber(v)
+        if not n then return end
+        n = math.clamp(n, 10, 5000)
+        BCX.wpbSpeed = n
+        wpSpeedBusy = true
+        if wpSpeedSlider then pcall(function() wpSpeedSlider:Set(n) end) end
+        wpSpeedBusy = false
+    end })
+
 WaypointSection:Toggle({ Title="Auto Waypoint Button", Value=true, Callback=function(s) BCX.wpbAuto = s end })
 WaypointSection:Button({ Title="Add Waypoint Button", Callback=function()
     if selectedWaypointName == "" or not waypointsData[selectedWaypointName] then
