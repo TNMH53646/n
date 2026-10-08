@@ -1,6 +1,9 @@
--- ==================== BlackCrown-X v3.7.3 ====================
+-- ==================== BlackCrown-X v3.7.4 ====================
+-- Changes (จาก v3.7.3):
+--   * Instant Prompt fix
 -- Changes (จาก v3.7.2):
---   * Instant Prompt คืนค่าได้
+--   * add Instant Prompt คืนค่าได้ Test
+--   * add Toggle Instant Prompt in misc Tab
 -- Changes (จาก v3.7.1):
 --   * Save now fix
 --   * "Save now" can Save Drawing Broken Mode
@@ -46,7 +49,6 @@
 --   * Click TP: กดปุ่มค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น + Quick Button / สวิตช์ "Click TP"
 -- Changes (จาก v3.1):
 --   * ระบบสถานะกลาง BCX.F / BCX.feat(): UI / คีย์ลัด / Quick Button ซิงก์กันเสมอ
-
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BCX_Instance and genv.BCX_Instance.destroy then
@@ -97,23 +99,72 @@ J.track(localPlayer.Idled:Connect(function()
     VirtualUser:Button2Up(Vector2.new(0, 0), camera.CFrame)
 end))
 
--- Instant Proximity Prompt (สวิตช์: เปิดไว้ตอนรัน / ปิดแล้วคืนค่าเดิมของเกม)
-local IP = { on = true, orig = setmetatable({}, { __mode = "k" }) }
-function IP.set(state)
-    IP.on = state and true or false
-    if not IP.on then
-        -- คืนค่า HoldDuration เดิมของทุกปุ่มที่เราเคยแก้
-        for prompt, old in pairs(IP.orig) do
-            if prompt.Parent then pcall(function() prompt.HoldDuration = old end) end
-        end
-        IP.orig = setmetatable({}, { __mode = "k" })
+-- Instant Proximity Prompt (เริ่มปิดเสมอ / ปิดแล้วคืนค่าเดิมของเกมครบทุกปุ่ม)
+local IP = { on = false, orig = {}, shownConn = nil, addConn = nil, scanId = 0 }
+
+local function ipApply(prompt)
+    if not prompt:IsA("ProximityPrompt") then return end
+    if prompt:GetAttribute("BCX_OrigHold") == nil then
+        prompt:SetAttribute("BCX_OrigHold", prompt.HoldDuration) -- จำค่าเดิมครั้งแรกครั้งเดียว
+    end
+    IP.orig[prompt] = true
+    if prompt.HoldDuration ~= 0 then prompt.HoldDuration = 0 end
+end
+
+local function ipRestore(prompt)
+    local o = prompt:GetAttribute("BCX_OrigHold")
+    if o ~= nil then
+        pcall(function() prompt.HoldDuration = o end)
+        pcall(function() prompt:SetAttribute("BCX_OrigHold", nil) end)
     end
 end
-J.track(ProximityService.PromptShown:Connect(function(prompt)
-    if not IP.on then return end
-    if IP.orig[prompt] == nil then IP.orig[prompt] = prompt.HoldDuration end -- จำค่าเดิมครั้งแรกครั้งเดียว
-    prompt.HoldDuration = 0
-end))
+
+function IP.set(state)
+    IP.on = state and true or false
+    IP.scanId = IP.scanId + 1
+    local sid = IP.scanId
+
+    if IP.shownConn then IP.shownConn:Disconnect(); IP.shownConn = nil end
+    if IP.addConn then IP.addConn:Disconnect(); IP.addConn = nil end
+
+    if IP.on then
+        IP.shownConn = ProximityService.PromptShown:Connect(function(prompt)
+            if IP.on then pcall(ipApply, prompt) end
+        end)
+        IP.addConn = workspace.DescendantAdded:Connect(function(d)
+            if IP.on and d:IsA("ProximityPrompt") then pcall(ipApply, d) end
+        end)
+        -- ใช้กับปุ่มที่มีอยู่แล้วทันที (สแกนแบบแบ่งเฟรม)
+        task.spawn(function()
+            local i = 0
+            for _, d in ipairs(workspace:GetDescendants()) do
+                i = i + 1
+                if i % 1500 == 0 then
+                    task.wait()
+                    if sid ~= IP.scanId then return end
+                end
+                if d:IsA("ProximityPrompt") then pcall(ipApply, d) end
+            end
+        end)
+    else
+        -- 1) คืนค่าที่จำไว้ในตารางก่อน (เร็ว)
+        for prompt in pairs(IP.orig) do pcall(ipRestore, prompt) end
+        IP.orig = {}
+        -- 2) สแกนกวาดตกค้าง (ปุ่มที่หลุดจากตาราง เช่น โดนสตรีม / รีโหลดสคริปต์)
+        task.spawn(function()
+            local i = 0
+            for _, d in ipairs(workspace:GetDescendants()) do
+                i = i + 1
+                if i % 1500 == 0 then
+                    task.wait()
+                    if sid ~= IP.scanId then return end
+                end
+                if d:IsA("ProximityPrompt") then pcall(ipRestore, d) end
+            end
+        end)
+    end
+end
+
 J.onClean(function() IP.set(false) end) -- ปิดสคริปต์/รีโหลด = คืนค่าเดิมด้วย
 
 -- ==================== VARIABLES ====================
@@ -1820,7 +1871,7 @@ local function loadQuickButtons(callbackMap)
                 local f = BCX.F[d.func]
                 local real = f and f.get() or false
                 createQuickButton(d.func, d.x or 100, d.y or 100, d.size or 65, real, callbackMap[d.func])
-                if d.state and not real then pcall(callbackMap[d.func], true) end
+                if d.state and not real and d.func ~= "Instant Prompt" then pcall(callbackMap[d.func], true) end
             end
         end
     end)
@@ -3655,10 +3706,10 @@ BCX.UI["Click TP"] = ToolsSection:Toggle({ Title="Click TP Mode", Value=false, C
 end })
 
 E("Instant Prompt", "กดติดทันที",
-  "ON = interact prompts work instantly without holding. OFF = back to the game's original hold time. Always ON when the script starts.",
-  "เปิด = กดทีเดียวทำงานทันที ไม่ต้องกดค้าง / ปิด = คืนเวลากดค้างเดิมของเกม (เปิดไว้ทุกครั้งที่รันสคริปต์)")
+  "ON = interact prompts work instantly without holding. OFF = back to the game's original hold time. Always OFF when you join a game.",
+  "เปิด = กดทีเดียวทำงานทันที ไม่ต้องกดค้าง / ปิด = คืนเวลากดค้างเดิมของเกม (เข้าเกมมาจะปิดอยู่เสมอ)")
 BCX.NOSAVE["Instant Prompt"] = true
-BCX.UI["Instant Prompt"] = ToolsSection:Toggle({ Title="Instant Prompt", Value=true, Callback=function(s)
+BCX.UI["Instant Prompt"] = ToolsSection:Toggle({ Title="Instant Prompt", Value=false, Callback=function(s)
     BCX.feat("Instant Prompt", s, "ui")
 end })
 
