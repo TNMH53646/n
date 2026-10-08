@@ -1,4 +1,7 @@
--- ==================== BlackCrown-X v3.7.1 ====================
+-- ==================== BlackCrown-X v3.7.2 ====================
+-- Changes (จาก v3.7.1):
+--   * Save now fix
+--   * "Save now" can Save Drawing Broken Mode
 -- Changes (จาก v3.7.0):
 --   * Box, Name & Distance, Health Bar, Health %, Tracer, Mic, FOV Circle, NPC ESP, Object Search ESP add Billboard Gui
 --   * add Drawing Broken Mode Toggle in Esp Tab
@@ -232,6 +235,7 @@ end
 function BCX.reload()
     if genv.BCX_Reloading then return end
     genv.BCX_Reloading = true
+    genv.BCX_DrawOverride = BCX.drawBroken
     task.spawn(function()
         pcall(function() BCX.cfg:Save() end)
         J.destroy()
@@ -1823,11 +1827,18 @@ local hasDrawingAPI = (typeof(Drawing) == "table" and typeof(Drawing.new) == "fu
 -- เมื่อเปิด Drawing Broken Mode: แทนที่ Drawing ด้วยตัวจำลองที่วาดด้วย GUI ของ Roblox
 -- (โค้ด ESP / FOV / NPC เดิมไม่ต้องแก้ เพราะเรียก Drawing.new เหมือนเดิม)
 BCX.drawBroken = false
-pcall(function()
-    if isfile and isfile("BlackCrown-X/drawmode.txt") then
-        BCX.drawBroken = (readfile("BlackCrown-X/drawmode.txt") == "1")
-    end
-end)
+if genv.BCX_DrawOverride ~= nil then
+    -- รีโหลดจากสวิตช์/สลับ UI: ใช้ค่าปัจจุบันที่ยังไม่ได้เซฟ (ใช้ครั้งเดียว)
+    BCX.drawBroken = genv.BCX_DrawOverride and true or false
+    genv.BCX_DrawOverride = nil
+else
+    -- รันสคริปต์ใหม่: ใช้ค่าที่เคยกด Save Now ไว้
+    pcall(function()
+        if isfile and isfile("BlackCrown-X/drawmode.txt") then
+            BCX.drawBroken = (readfile("BlackCrown-X/drawmode.txt") == "1")
+        end
+    end)
+end
 
 local Drawing = Drawing
 if BCX.drawBroken then
@@ -1949,6 +1960,7 @@ if BCX.drawBroken then
     end
 
     Drawing = { new = newDraw }
+    hasDrawingAPI = true
 end
 
 pcall(function()
@@ -2095,7 +2107,7 @@ local function createESP(plr)
                         end
                         local voiceInst = micCache
                         if voiceInst and voiceInst.Parent then
-                            micText.Text = "🎤"
+                            micText.Text = "MIC"
                             micText.Color = (voiceInst:IsA("Sound") and voiceInst.PlaybackLoudness > 5) and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,255,255)
                             micText.Position = Vector2.new(minX+boxWidth+4, minY); micText.Visible = true
                         else micText.Visible = false end
@@ -3307,18 +3319,17 @@ FOVSection:Colorpicker({ Title="FOV Color",    Default=Color3.fromRGB(255,255,25
 
 -- ==================== UI: ESP TAB ====================
 local ESPSettingsSection = ESPTab:Section({ Title = "Visual Toggles", Icon = "eye" })
--- [v3.7.1] สวิตช์สำหรับ executor ที่ Drawing API พัง (สร้างได้แต่ไม่วาดอะไร)
+-- [v3.7.1] สวิตช์สำหรับ executor ที่ Drawing API พัง
 E("Drawing Broken Mode", "โหมดแก้ Drawing พัง",
   "Turn this ON if Box / Name & Distance / Health / Tracer / FOV dont show up (your executors Drawing API is broken). ESP is drawn with Roblox GUI instead. The script reloads when you change this.",
   "เปิดอันนี้ถ้า ESP (กรอบ / ชื่อและระยะ / เลือด / เส้นนำทาง / วง FOV) ไม่ขึ้น เพราะ Drawing API ของ executor พัง สคริปต์จะวาดด้วย GUI ของ Roblox แทน (เปลี่ยนแล้วสคริปต์จะรีโหลดเอง)")
 BCX.NOSAVE["Drawing Broken Mode"] = true
+BCX.drawReady = false
+task.delay(3, function() BCX.drawReady = true end)
 ESPSettingsSection:Toggle({ Title = "Drawing Broken Mode", Value = BCX.drawBroken, Callback = function(s)
-if not BCX.drawReady then return end    
-if s == BCX.drawBroken then return end -- ค่าเดิม (เรียกตอนสร้างสวิตช์) ไม่ต้องรีโหลด
-    pcall(function()
-        if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
-        if writefile then writefile("BlackCrown-X/drawmode.txt", s and "1" or "0") end
-    end)
+    if not BCX.drawReady then return end
+    if s == BCX.drawBroken then return end
+    BCX.drawBroken = s
     BCX.reload()
 end })
 ESPSettingsSection:Toggle({ Title="Name & Distance",  Default=false, Callback=function(s) espNameEnabled=s end })
@@ -3546,6 +3557,10 @@ local autoSaveThread = nil
 local SaveSection = LocalPlayerTab:Section({ Title = "Auto-Save", Icon = "save" })
 
 function BCX.saveNow()
+    pcall(function()
+    if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+    if writefile then writefile("BlackCrown-X/drawmode.txt", BCX.drawBroken and "1" or "0") end
+end)
     local ok, err = pcall(function() return BCX.cfg:Save() end)
     if ok then notify("Saved", "บันทึกแล้ว ✅", 2)
     else notify("Error", tostring(err), 4) end
