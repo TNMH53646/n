@@ -1,4 +1,7 @@
--- ==================== BlackCrown-X v3.7.0 ====================
+-- ==================== BlackCrown-X v3.7.1 ====================
+-- Changes (จาก v3.7.0):
+--   * Box, Name & Distance, Health Bar, Health %, Tracer, Mic, FOV Circle, NPC ESP, Object Search ESP add Billboard Gui
+--   * add Drawing Broken Mode Toggle in Esp Tab
 -- Changes (จาก v3.6.4):
 --   * Quick Button / ปุ่มวาร์ป เล็กลง (ขนาดคงที่ BCX.QB_SIZE) และชื่อยาวๆ ย่อตัวอักษรเองไม่ล้นปุ่ม
 --   * ปุ่มวาร์ป (Waypoint Button) ย้ายไปอยู่ฝั่งขวาของจอ (ปุ่มเก่าที่เคยเซฟไว้ฝั่งซ้ายจะถูกย้ายมาขวาให้เอง)
