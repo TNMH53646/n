@@ -1,4 +1,6 @@
--- ==================== BlackCrown-X v3.7.2 ====================
+-- ==================== BlackCrown-X v3.7.3 ====================
+-- Changes (จาก v3.7.2):
+--   * Instant Prompt คืนค่าได้
 -- Changes (จาก v3.7.1):
 --   * Save now fix
 --   * "Save now" can Save Drawing Broken Mode
@@ -44,6 +46,7 @@
 --   * Click TP: กดปุ่มค้างไว้ แล้วคลิกตรงจุดไหนก็วาร์ปไปจุดนั้น + Quick Button / สวิตช์ "Click TP"
 -- Changes (จาก v3.1):
 --   * ระบบสถานะกลาง BCX.F / BCX.feat(): UI / คีย์ลัด / Quick Button ซิงก์กันเสมอ
+
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BCX_Instance and genv.BCX_Instance.destroy then
@@ -94,10 +97,24 @@ J.track(localPlayer.Idled:Connect(function()
     VirtualUser:Button2Up(Vector2.new(0, 0), camera.CFrame)
 end))
 
--- Instant Proximity Prompt
+-- Instant Proximity Prompt (สวิตช์: เปิดไว้ตอนรัน / ปิดแล้วคืนค่าเดิมของเกม)
+local IP = { on = true, orig = setmetatable({}, { __mode = "k" }) }
+function IP.set(state)
+    IP.on = state and true or false
+    if not IP.on then
+        -- คืนค่า HoldDuration เดิมของทุกปุ่มที่เราเคยแก้
+        for prompt, old in pairs(IP.orig) do
+            if prompt.Parent then pcall(function() prompt.HoldDuration = old end) end
+        end
+        IP.orig = setmetatable({}, { __mode = "k" })
+    end
+end
 J.track(ProximityService.PromptShown:Connect(function(prompt)
+    if not IP.on then return end
+    if IP.orig[prompt] == nil then IP.orig[prompt] = prompt.HoldDuration end -- จำค่าเดิมครั้งแรกครั้งเดียว
     prompt.HoldDuration = 0
 end))
+J.onClean(function() IP.set(false) end) -- ปิดสคริปต์/รีโหลด = คืนค่าเดิมด้วย
 
 -- ==================== VARIABLES ====================
 local selectedPlayerName = ""
@@ -2839,6 +2856,12 @@ BCX.F["Lock Buttons"] = {
     label = "Lock Buttons",
 }
 
+BCX.F["Instant Prompt"] = {
+    get = function() return IP.on end,
+    apply = function(s) IP.set(s) end,
+    label = "Instant Prompt",
+}
+
 -- ดันสถานะจริงไปที่ UI + Quick Button
 function BCX.sync(name)
     local f = BCX.F[name]
@@ -3630,6 +3653,15 @@ local ToolsSection = MiscTab:Section({ Title = "Tools", Icon = "wrench" })
 BCX.UI["Click TP"] = ToolsSection:Toggle({ Title="Click TP Mode", Value=false, Callback=function(s)
     BCX.feat("Click TP", s, "ui")
 end })
+
+E("Instant Prompt", "กดติดทันที",
+  "ON = interact prompts work instantly without holding. OFF = back to the game's original hold time. Always ON when the script starts.",
+  "เปิด = กดทีเดียวทำงานทันที ไม่ต้องกดค้าง / ปิด = คืนเวลากดค้างเดิมของเกม (เปิดไว้ทุกครั้งที่รันสคริปต์)")
+BCX.NOSAVE["Instant Prompt"] = true
+BCX.UI["Instant Prompt"] = ToolsSection:Toggle({ Title="Instant Prompt", Value=true, Callback=function(s)
+    BCX.feat("Instant Prompt", s, "ui")
+end })
+
 ToolsSection:Button({ Title="Get TP Tool", Desc="เครื่องมือคลิกเพื่อวาร์ป", Callback=function()
     local plr = localPlayer
     if plr then
