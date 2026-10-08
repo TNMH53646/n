@@ -1816,6 +1816,138 @@ local espObjects = {}
 local friendCache = {}
 local hasDrawingAPI = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
 
+-- ==================== DRAWING FALLBACK (v3.7.1) ====================
+-- เมื่อเปิด Drawing Broken Mode: แทนที่ Drawing ด้วยตัวจำลองที่วาดด้วย GUI ของ Roblox
+-- (โค้ด ESP / FOV / NPC เดิมไม่ต้องแก้ เพราะเรียก Drawing.new เหมือนเดิม)
+BCX.drawBroken = false
+pcall(function()
+    if isfile and isfile("BlackCrown-X/drawmode.txt") then
+        BCX.drawBroken = (readfile("BlackCrown-X/drawmode.txt") == "1")
+    end
+end)
+
+local Drawing = Drawing
+if BCX.drawBroken then
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "BCX_DrawFallback"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 997
+    pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+    if not gui.Parent then gui.Parent = p:WaitForChild("PlayerGui") end
+    J.obj(gui)
+
+    -- อัปเดต GUI รวมในเฟรมเดียว (ไม่อัปเดตทุกครั้งที่เซ็ตค่า)
+    local dirty = {}
+    J.track(rs.RenderStepped:Connect(function()
+        for apply in pairs(dirty) do
+            dirty[apply] = nil
+            pcall(apply)
+        end
+    end))
+
+    local function newDraw(kind)
+        local P = {
+            Visible = false, Color = Color3.new(1, 1, 1), Thickness = 1, Filled = false,
+            Transparency = 1, -- Drawing: 1 = ทึบ, 0 = โปร่งใส (กลับกับ Roblox)
+            Size = (kind == "Text") and 14 or Vector2.new(0, 0),
+            Position = Vector2.new(0, 0), Text = "", Center = false, Outline = false,
+            From = Vector2.new(0, 0), To = Vector2.new(0, 0), Radius = 0, NumSides = 64,
+        }
+        local inst, stroke, removed
+
+        if kind == "Text" then
+            inst = Instance.new("TextLabel")
+            inst.BackgroundTransparency = 1
+            inst.Font = Enum.Font.SourceSansBold
+            inst.TextYAlignment = Enum.TextYAlignment.Top
+        else
+            inst = Instance.new("Frame")
+            inst.BorderSizePixel = 0
+            if kind == "Circle" then
+                Instance.new("UICorner", inst).CornerRadius = UDim.new(1, 0)
+            end
+            if kind == "Square" or kind == "Circle" then
+                stroke = Instance.new("UIStroke")
+                stroke.Parent = inst
+            end
+        end
+        inst.Visible = false
+        inst.Parent = gui
+
+        local function paintFill(tr)
+            if P.Filled then
+                inst.BackgroundColor3 = P.Color
+                inst.BackgroundTransparency = tr
+                stroke.Enabled = false
+            else
+                inst.BackgroundTransparency = 1
+                stroke.Enabled = true
+                stroke.Color = P.Color
+                stroke.Thickness = P.Thickness
+                stroke.Transparency = tr
+            end
+        end
+
+        local function apply()
+            if removed then return end
+            inst.Visible = P.Visible and true or false
+            if not P.Visible then return end
+            local tr = 1 - P.Transparency
+            if kind == "Text" then
+                inst.Text = P.Text
+                inst.TextSize = P.Size
+                inst.TextColor3 = P.Color
+                inst.TextTransparency = tr
+                inst.TextStrokeTransparency = P.Outline and 0 or 1
+                inst.Size = UDim2.fromOffset(300, P.Size + 4)
+                inst.AnchorPoint = Vector2.new(P.Center and 0.5 or 0, 0)
+                inst.TextXAlignment = P.Center and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+                inst.Position = UDim2.fromOffset(P.Position.X, P.Position.Y)
+            elseif kind == "Line" then
+                local d = P.To - P.From
+                local mid = (P.From + P.To) / 2
+                inst.AnchorPoint = Vector2.new(0.5, 0.5)
+                inst.Size = UDim2.fromOffset(d.Magnitude, math.max(P.Thickness, 1))
+                inst.Position = UDim2.fromOffset(mid.X, mid.Y)
+                inst.Rotation = math.deg(math.atan2(d.Y, d.X))
+                inst.BackgroundColor3 = P.Color
+                inst.BackgroundTransparency = tr
+            elseif kind == "Circle" then
+                inst.AnchorPoint = Vector2.new(0.5, 0.5)
+                inst.Size = UDim2.fromOffset(P.Radius * 2, P.Radius * 2)
+                inst.Position = UDim2.fromOffset(P.Position.X, P.Position.Y)
+                paintFill(tr)
+            else -- Square
+                inst.AnchorPoint = Vector2.new(0, 0)
+                inst.Size = UDim2.fromOffset(P.Size.X, P.Size.Y)
+                inst.Position = UDim2.fromOffset(P.Position.X, P.Position.Y)
+                paintFill(tr)
+            end
+        end
+
+        return setmetatable({}, {
+            __index = function(_, k)
+                if k == "Remove" or k == "Destroy" then
+                    return function()
+                        removed = true
+                        dirty[apply] = nil
+                        pcall(function() inst:Destroy() end)
+                    end
+                end
+                return P[k]
+            end,
+            __newindex = function(_, k, v)
+                if removed or P[k] == v then return end
+                P[k] = v
+                dirty[apply] = true
+            end,
+        })
+    end
+
+    Drawing = { new = newDraw }
+end
+
 pcall(function()
     local t = Drawing.new("Text")
     t.Text = "BCX Drawing TEST"; t.Size = 24; t.Color = Color3.new(1,1,0)
@@ -1983,6 +2115,7 @@ local function createESP(plr)
             end
         end
     end
+
     local conn = rs.RenderStepped:Connect(function()
         local ok, err = pcall(step)
         if not ok and not BCX.espErrShown then
@@ -3171,6 +3304,20 @@ FOVSection:Colorpicker({ Title="FOV Color",    Default=Color3.fromRGB(255,255,25
 
 -- ==================== UI: ESP TAB ====================
 local ESPSettingsSection = ESPTab:Section({ Title = "Visual Toggles", Icon = "eye" })
+-- [v3.7.1] สวิตช์สำหรับ executor ที่ Drawing API พัง (สร้างได้แต่ไม่วาดอะไร)
+E("Drawing Broken Mode", "โหมดแก้ Drawing พัง",
+  "Turn this ON if Box / Name & Distance / Health / Tracer / FOV dont show up (your executors Drawing API is broken). ESP is drawn with Roblox GUI instead. The script reloads when you change this.",
+  "เปิดอันนี้ถ้า ESP (กรอบ / ชื่อและระยะ / เลือด / เส้นนำทาง / วง FOV) ไม่ขึ้น เพราะ Drawing API ของ executor พัง สคริปต์จะวาดด้วย GUI ของ Roblox แทน (เปลี่ยนแล้วสคริปต์จะรีโหลดเอง)")
+BCX.NOSAVE["Drawing Broken Mode"] = true
+ESPSettingsSection:Toggle({ Title = "Drawing Broken Mode", Value = BCX.drawBroken, Callback = function(s)
+if not BCX.drawReady then return end    
+if s == BCX.drawBroken then return end -- ค่าเดิม (เรียกตอนสร้างสวิตช์) ไม่ต้องรีโหลด
+    pcall(function()
+        if makefolder and isfolder and not isfolder("BlackCrown-X") then makefolder("BlackCrown-X") end
+        if writefile then writefile("BlackCrown-X/drawmode.txt", s and "1" or "0") end
+    end)
+    BCX.reload()
+end })
 ESPSettingsSection:Toggle({ Title="Name & Distance",  Default=false, Callback=function(s) espNameEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Box ESP",          Default=false, Callback=function(s) espBoxEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Health Bar",       Default=false, Callback=function(s) espHealthBarEnabled=s end })
@@ -3178,7 +3325,10 @@ ESPSettingsSection:Toggle({ Title="Health % Text",    Default=false, Callback=fu
 ESPSettingsSection:Toggle({ Title="Tracer Line",      Default=false, Callback=function(s) espTracerEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Highlight",        Default=false, Callback=function(s) espHighlightEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Mic Indicator",    Default=false, Callback=function(s) espMicEnabled=s end })
--- [v3.7.0] NPC ESP: ไฮไลต์ + ชื่อ + ระยะ ของทุกตัวที่มี Humanoid และไม่ใช่ผู้เล่น
+
+BCX.drawReady = false
+task.delay(3, function() BCX.drawReady = true end)
+
 BCX.UI["NPC ESP"] = ESPSettingsSection:Toggle({ Title="NPC ESP", Default=false, Callback=function(s)
     BCX.feat("NPC ESP", s, "ui")
 end })
