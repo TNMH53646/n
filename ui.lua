@@ -3612,7 +3612,7 @@ WaypointSection:Dropdown({ Title="Waypoint Button Mode", Values={"Teleport","Twe
             BCX.saveWPB()
         end
     end })
-WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1, Value={Min=10,Max=300,Default=80},
+WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1, Value={Min=10,Max=5000,Default=100},
     Callback=function(v) BCX.wpbSpeed = tonumber(v) or 80 end })
 WaypointSection:Toggle({ Title="Auto Waypoint Button", Value=true, Callback=function(s) BCX.wpbAuto = s end })
 WaypointSection:Button({ Title="Add Waypoint Button", Callback=function()
