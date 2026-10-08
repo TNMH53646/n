@@ -3601,7 +3601,7 @@ end })
 -- [v3.7.0] โหมดของปุ่มวาร์ปที่จะสร้าง: Teleport (ฟ้า) / Tween (ม่วง)
 WaypointSection:Dropdown({ Title="Waypoint Button Mode", Values={"Teleport","Tween"}, Value="Teleport",
     Callback=function(v) BCX.wpbMode = (v == "Tween") and "Tween" or "Teleport" end })
-WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1, Value={Min=10,Max=300,Default=80},
+WaypointSection:Slider({ Title="Waypoint Tween Speed", Step=1, Value={Min=10,Max=1200,Default=100},
     Callback=function(v) BCX.wpbSpeed = tonumber(v) or 80 end })
 WaypointSection:Toggle({ Title="Auto Waypoint Button", Value=true, Callback=function(s) BCX.wpbAuto = s end })
 WaypointSection:Button({ Title="Add Waypoint Button", Callback=function()
