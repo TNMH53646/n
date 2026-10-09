@@ -1,4 +1,6 @@
--- ==================== BlackCrown-X v3.7.6 ====================
+-- ==================== BlackCrown-X v3.7.7 ====================
+-- Changes (จาก v3.7.6):
+--   * mic ดีขึ้น
 -- Changes (จาก v3.7.5):
 --   * Waypoint Button Mode: เปลี่ยน Dropdown แล้วปุ่มวาร์ปของจุดที่เลือกเปลี่ยนโหมด (Teleport/Tween) + สีทันที ไม่ต้องกด Add Waypoint Button ใหม่
 --   * Waypoint Tween Speed: สไลด์สูงสุด 5000 + เพิ่มช่องพิมพ์ความเร็วใต้สไลด์ (ซิงก์กัน) ค่าเริ่มต้น 300
@@ -577,93 +579,147 @@ end
 -- Fling ผู้เล่น 1 คน (บล็อกจนจบ) คืน true ถ้าได้ลงมือ
 function BCX.skidFling(target, sid)
     local function active() return BCX.flinging and sid == BCX.flingSession end
-    local char = localPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local root = hum and hum.RootPart
-    local tChar = target and target.Character
-    if not (char and hum and root and tChar) then return false end
 
-    local tHum = tChar:FindFirstChildOfClass("Humanoid")
-    local tRoot = tHum and tHum.RootPart
-    local tHead = tChar:FindFirstChild("Head")
-    local acc = tChar:FindFirstChildOfClass("Accessory")
-    local handle = acc and acc:FindFirstChild("Handle")
-    if tHum and tHum.Sit then return false end -- เป้าหมายนั่งอยู่ ข้าม
-    if not tChar:FindFirstChildWhichIsA("BasePart") then return false end
+    local Character = localPlayer.Character
+    local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    local RootPart = Humanoid and Humanoid.RootPart
+    local TCharacter = target and target.Character
+    if not (Character and Humanoid and RootPart and TCharacter) then return false end
 
-    local home = BCX.flingOrigCF
-    local cam = workspace.CurrentCamera
-    if cam then
-        if tHead then cam.CameraSubject = tHead
-        elseif handle then cam.CameraSubject = handle
-        elseif tHum and tRoot then cam.CameraSubject = tHum end
+    local THumanoid, TRootPart, THead, Accessory, Handle
+    if TCharacter:FindFirstChildOfClass("Humanoid") then
+        THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
+    end
+    if THumanoid and THumanoid.RootPart then
+        TRootPart = THumanoid.RootPart
+    end
+    if TCharacter:FindFirstChild("Head") then
+        THead = TCharacter.Head
+    end
+    if TCharacter:FindFirstChildOfClass("Accessory") then
+        Accessory = TCharacter:FindFirstChildOfClass("Accessory")
+    end
+    if Accessory and Accessory:FindFirstChild("Handle") then
+        Handle = Accessory.Handle
     end
 
-    local function fPos(base, pos, ang)
-        if not root.Parent or not base.Parent then return end
-        root.CFrame = CFrame.new(base.Position) * pos * ang
-        root.AssemblyLinearVelocity = Vector3.new(9e7, 9e8, 9e7)
-        root.AssemblyAngularVelocity = Vector3.new(9e8, 9e8, 9e8)
+    if RootPart.Velocity.Magnitude < 50 or not BCX.flingOrigCF then
+        BCX.flingOrigCF = RootPart.CFrame
     end
 
-    local function hitPart(base)
-        local timeout, t0, angle = 2, os.clock(), 0
+    if THumanoid and THumanoid.Sit then return false end
+
+    if THead then
+        workspace.CurrentCamera.CameraSubject = THead
+    elseif Handle then
+        workspace.CurrentCamera.CameraSubject = Handle
+    elseif THumanoid and TRootPart then
+        workspace.CurrentCamera.CameraSubject = THumanoid
+    end
+
+    if not TCharacter:FindFirstChildWhichIsA("BasePart") then return false end
+
+    local function FPos(BasePart, Pos, Ang)
+        RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
+        Character:SetPrimaryPartCFrame(CFrame.new(BasePart.Position) * Pos * Ang)
+        RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+        RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+    end
+
+    local function SFBasePart(BasePart)
+        local TimeToWait = 2
+        local Time = tick()
+        local Angle = 0
         repeat
-            if root.Parent and base.Parent and tHum then
-                if base.AssemblyLinearVelocity.Magnitude < 50 then
-                    angle = angle + 100
-                    local mv = tHum.MoveDirection * base.AssemblyLinearVelocity.Magnitude / 1.25
-                    fPos(base, CFrame.new(0, 1.5, 0) + mv, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
-                    fPos(base, CFrame.new(0, -1.5, 0) + mv, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
-                    fPos(base, CFrame.new(0, 1.5, 0) + tHum.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
-                    fPos(base, CFrame.new(0, -1.5, 0) + tHum.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0)); task.wait()
+            if RootPart and THumanoid then
+                if BasePart.Velocity.Magnitude < 50 then
+                    Angle = Angle + 100
+
+                    FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
                 else
-                    fPos(base, CFrame.new(0, 1.5, tHum.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
-                    fPos(base, CFrame.new(0, -1.5, -tHum.WalkSpeed), CFrame.Angles(0, 0, 0)); task.wait()
-                    fPos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
-                    fPos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
+                    FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, -1.5, -THumanoid.WalkSpeed), CFrame.Angles(0, 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+
+                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+                    task.wait()
                 end
             else
                 task.wait()
             end
-        until os.clock() - t0 > timeout or not active() or not base.Parent
+        until BasePart.Velocity.Magnitude > 500
+            or BasePart.Parent ~= TCharacter
+            or target.Parent ~= players
+            or TCharacter ~= target.Character
+            or THumanoid.Sit
+            or Humanoid.Health <= 0
+            or tick() > Time + TimeToWait
+            or not active()
     end
 
     workspace.FallenPartsDestroyHeight = 0 / 0
-    local bv = Instance.new("BodyVelocity")
-    bv.Name = "BCX_FlingBV"
-    bv.Velocity = Vector3.zero
-    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-    bv.Parent = root
-    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false) end)
 
-    if tRoot then hitPart(tRoot)
-    elseif tHead then hitPart(tHead)
-    elseif handle then hitPart(handle) end
+    local BV = Instance.new("BodyVelocity")
+    BV.Name = "BCX_FlingBV"
+    BV.Parent = RootPart
+    BV.Velocity = Vector3.new(0, 0, 0)
+    BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
 
-    pcall(function() bv:Destroy() end)
-    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end)
-    if cam then pcall(function() cam.CameraSubject = hum end) end
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
 
-    if not active() then return true end -- ถูกสั่งหยุด: flingStop จัดการคืนค่าเอง
+    if TRootPart and THead then
+        if (TRootPart.CFrame.p - THead.CFrame.p).Magnitude > 5 then
+            SFBasePart(THead)
+        else
+            SFBasePart(TRootPart)
+        end
+    elseif TRootPart and not THead then
+        SFBasePart(TRootPart)
+    elseif not TRootPart and THead then
+        SFBasePart(THead)
+    elseif not TRootPart and not THead and Accessory and Handle then
+        SFBasePart(Handle)
+    end
 
-    -- วาร์ปกลับที่เดิม (กันตกแมพ/ติดค้าง: ลองไม่เกิน 2 วิ)
-    if home then
+    BV:Destroy()
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+    workspace.CurrentCamera.CameraSubject = Humanoid
+
+    if not active() then return true end
+
+    if BCX.flingOrigCF then
         local t0 = os.clock()
         repeat
-            if not root.Parent then break end
-            root.CFrame = home * CFrame.new(0, 0.5, 0)
-            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
-            for _, v in ipairs(char:GetChildren()) do
-                if v:IsA("BasePart") then
-                    v.AssemblyLinearVelocity = Vector3.zero
-                    v.AssemblyAngularVelocity = Vector3.zero
+            RootPart.CFrame = BCX.flingOrigCF * CFrame.new(0, 0.5, 0)
+            Character:SetPrimaryPartCFrame(BCX.flingOrigCF * CFrame.new(0, 0.5, 0))
+            Humanoid:ChangeState("GettingUp")
+            for _, x in ipairs(Character:GetChildren()) do
+                if x:IsA("BasePart") then
+                    x.Velocity, x.RotVelocity = Vector3.new(), Vector3.new()
                 end
             end
             task.wait()
-        until (root.Position - home.Position).Magnitude < 25 or os.clock() - t0 > 2 or not active()
+        until (RootPart.Position - BCX.flingOrigCF.p).Magnitude < 25 or os.clock() - t0 > 3 or not active()
     end
-    pcall(function() workspace.FallenPartsDestroyHeight = BCX.FPDH end)
+    workspace.FallenPartsDestroyHeight = BCX.FPDH
     return true
 end
 
@@ -1964,6 +2020,7 @@ if BCX.drawBroken then
         end
     end))
 
+    local zCounter = 0
     local function newDraw(kind)
         local P = {
             Visible = false, Color = Color3.new(1, 1, 1), Thickness = 1, Filled = false,
@@ -1991,6 +2048,8 @@ if BCX.drawBroken then
             end
         end
         inst.Visible = false
+        zCounter = zCounter + 1
+        inst.ZIndex = zCounter
         inst.Parent = gui
 
         local function paintFill(tr)
@@ -2212,7 +2271,7 @@ local function createESP(plr)
                         local voiceInst = micCache
                         if voiceInst and voiceInst.Parent then
                             micText.Text = "MIC"
-                            micText.Color = (voiceInst:IsA("Sound") and voiceInst.PlaybackLoudness > 5) and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,255,255)
+                            micText.Color = (voiceInst:IsA("Sound") and voiceInst.PlaybackLoudness > 5) and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
                             micText.Position = Vector2.new(minX+boxWidth+4, minY); micText.Visible = true
                         else micText.Visible = false end
                     elseif micText then micText.Visible = false end
@@ -2476,6 +2535,144 @@ function BCX.npcSet(state)
         for model in pairs(N.objs) do table.insert(list, model) end
         for _, model in ipairs(list) do BCX.npcRemove(model) end
     end
+end
+
+-- ==================== MIC ESP (BillboardGui) ====================
+-- ขาว = มีไมค์ไม่พูด | เขียว = กำลังพูด | แดง = ปิดไมค์ | เทา "MIC ?" = หาแหล่งเสียงของคนนี้ไม่เจอ
+BCX.mic = { on = false, data = {}, acc = 0 }
+do
+    local M = BCX.mic
+    local folder = Instance.new("Folder")
+    folder.Name = "BCX_MicFolder"
+    folder.Parent = workspace
+    J.obj(folder)
+
+    local WHITE, GREEN = Color3.fromRGB(255,255,255), Color3.fromRGB(0,255,0)
+    local RED, GRAY = Color3.fromRGB(255,60,60), Color3.fromRGB(140,140,140)
+
+    local function findSource(plr)
+        -- 1) ระบบ Audio ใหม่: AudioDeviceInput อยู่ใต้ตัวผู้เล่น
+        local dev = plr:FindFirstChildWhichIsA("AudioDeviceInput")
+        if dev then return "device", dev end
+        -- 2) ระบบเก่า: Sound ชื่อ VoiceSource ในตัวละคร
+        local char = plr.Character
+        local s = char and char:FindFirstChild("VoiceSource", true)
+        if s and s:IsA("Sound") then return "sound", s end
+    end
+
+    local function dropData(plr)
+        local d = M.data[plr]
+        if not d then return end
+        if d.bb then pcall(function() d.bb:Destroy() end) end
+        if d.an then pcall(function() d.an:Destroy() end) end
+        if d.wire then pcall(function() d.wire:Destroy() end) end
+        M.data[plr] = nil
+    end
+
+    local function clearAll()
+        local list = {}
+        for plr in pairs(M.data) do table.insert(list, plr) end
+        for _, plr in ipairs(list) do dropData(plr) end
+    end
+
+    local function makeGui(head)
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "BCX_MicBB"
+        bb.Adornee = head
+        bb.AlwaysOnTop = true
+        bb.Size = UDim2.fromOffset(52, 18)
+        bb.StudsOffsetWorldSpace = Vector3.new(0, 2.8, 0)
+        bb.Parent = head
+        local t = Instance.new("TextLabel")
+        t.Name = "T"
+        t.Size = UDim2.fromScale(1, 1)
+        t.BackgroundTransparency = 1
+        t.Font = Enum.Font.GothamBold
+        t.TextSize = 14
+        t.TextStrokeTransparency = 0
+        t.Text = "MIC"
+        t.TextColor3 = WHITE
+        t.Parent = bb
+        return bb, t
+    end
+
+    local function makeAnalyzer(dev)
+        local an = Instance.new("AudioAnalyzer")
+        an.Name = "BCX_MicAnalyzer"
+        an.Parent = folder
+        local w = Instance.new("Wire")
+        w.Name = "BCX_MicWire"
+        w.SourceInstance = dev
+        w.TargetInstance = an
+        w.Parent = folder
+        return an, w
+    end
+
+    function BCX.micSet(state)
+        M.on = state and true or false
+        if not M.on then clearAll() end
+    end
+
+    J.track(players.PlayerRemoving:Connect(dropData))
+    J.onClean(clearAll)
+
+    -- ลูปเดียว อัปเดตทุก 0.1 วิ (ไม่ใช่ทุกเฟรมทุกคน)
+    J.track(rs.Heartbeat:Connect(function(dt)
+        if not M.on or BCX.dead then return end
+        M.acc = M.acc + dt
+        if M.acc < 0.1 then return end
+        M.acc = 0
+        local now = os.clock()
+
+        for _, plr in ipairs(players:GetPlayers()) do
+            if plr ~= localPlayer then
+                local char = plr.Character
+                local head = char and char:FindFirstChild("Head")
+                local d = M.data[plr]
+                if not head then
+                    if d then dropData(plr) end
+                else
+                    if not d then d = { nextScan = 0 }; M.data[plr] = d end
+
+                    -- ค้นหาแหล่งเสียงใหม่ทุก 3 วิ (ถ้ายังไม่มี หรือของเดิมหาย)
+                    if now >= d.nextScan and (not d.src or not d.src.Parent) then
+                        d.nextScan = now + 3
+                        if d.an then d.an:Destroy(); d.an = nil end
+                        if d.wire then d.wire:Destroy(); d.wire = nil end
+                        d.kind, d.src = findSource(plr)
+                        if d.kind == "device" then
+                            local ok, an, w = pcall(makeAnalyzer, d.src)
+                            if ok then d.an, d.wire = an, w end
+                        end
+                    end
+
+                    -- ป้ายบนหัว (สร้างใหม่ถ้าตัวละครเกิดใหม่)
+                    if not d.bb or not d.bb.Parent or d.bb.Adornee ~= head then
+                        if d.bb then d.bb:Destroy() end
+                        d.bb, d.label = makeGui(head)
+                    end
+
+                    -- คำนวณสถานะ
+                    local text, color = "MIC ?", GRAY
+                    if d.kind == "device" and d.src and d.src.Parent then
+                        local muted = false
+                        pcall(function() muted = d.src.Muted end)
+                        local level = 0
+                        if d.an then pcall(function() level = d.an.PeakLevel end) end
+                        if muted then text, color = "MIC", RED
+                        elseif level > 0.01 then text, color = "MIC", GREEN
+                        else text, color = "MIC", WHITE end
+                    elseif d.kind == "sound" and d.src and d.src.Parent then
+                        local talking = false
+                        pcall(function() talking = d.src.PlaybackLoudness > 5 end)
+                        text, color = "MIC", talking and GREEN or WHITE
+                    end
+                    d.label.Text = text
+                    d.label.TextColor3 = color
+                end
+            end
+        end
+    end))
 end
 
 -- ==================== AIMBOT ====================
@@ -3467,7 +3664,7 @@ ESPSettingsSection:Toggle({ Title="Health Bar",       Default=false, Callback=fu
 ESPSettingsSection:Toggle({ Title="Health % Text",    Default=false, Callback=function(s) espHealthTextEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Tracer Line",      Default=false, Callback=function(s) espTracerEnabled=s end })
 ESPSettingsSection:Toggle({ Title="Highlight",        Default=false, Callback=function(s) espHighlightEnabled=s end })
-ESPSettingsSection:Toggle({ Title="Mic Indicator",    Default=false, Callback=function(s) espMicEnabled=s end })
+ESPSettingsSection:Toggle({ Title="Mic Indicator",    Default=false, Callback=function(s) BCX.micSet(s) end })
 
 BCX.drawReady = false
 task.delay(3, function() BCX.drawReady = true end)
@@ -3773,6 +3970,20 @@ EmoteSection:Input({ Title="Custom Emote ID", Placeholder="ใส่หมาย
 EmoteSection:Toggle({ Title="Play Custom ID Emote", Default=false, Callback=function(state)
     isPlayingCustomEmote = state
     if state then stopCustomEmotes(); customTrack=playEmoteById(customEmoteIdInput) else stopCustomEmotes() end
+end })
+
+local MiscSpeedSection = MiscTab:Section({ Title = "Speed Controls", Icon = "gauge" })
+MiscSpeedSection:Input({  Title="Custom Speed", Placeholder="เช่น 30, 50...", Callback=function(input)
+    local num=tonumber(input); customSpeed=num or nil
+    if speedConnection then setSpeedLock(customSpeed or defaultSpeed) end
+end })
+MiscSpeedSection:Toggle({ Title="Lock Speed", Default=false, Callback=function(State)
+    if State then setSpeedLock(customSpeed or defaultSpeed)
+    else if speedConnection then speedConnection:Disconnect(); speedConnection=nil end end
+end })
+MiscSpeedSection:Button({ Title="Reset to Default", Callback=function()
+    local hum=localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid")
+    if hum then if speedConnection then speedConnection:Disconnect(); speedConnection=nil end; hum.WalkSpeed=defaultSpeed end
 end })
 
 local ToolsSection = MiscTab:Section({ Title = "Tools", Icon = "wrench" })
@@ -4091,7 +4302,7 @@ task.delay(1.5, function()
 end)
 
 -- ==================== FINAL ====================
-print("BlackCrown-X v3.7.4 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
+print("BlackCrown-X v3.7.7 loaded (UI mode: " .. BCX.UIPref .. (BCX.isMobile and " -> Mobile" or " -> PC") .. ")")
 Window:SetToggleKey(Enum.KeyCode.LeftAlt)
 
 -- ==================== FREE MOUSE (กด Y สลับ เปิด/ปิด) ====================
